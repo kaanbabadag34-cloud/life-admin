@@ -48,7 +48,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } on AuthException catch (error) {
       setState(() {
-        _errorMessage = error.message;
+        _errorMessage = _friendlyAuthError(error);
       });
     } catch (_) {
       setState(() {
@@ -63,6 +63,24 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  String _friendlyAuthError(AuthException error) {
+    final message = error.message.toLowerCase();
+
+    if (message.contains('invalid login credentials')) {
+      return 'E-posta veya şifre hatalı.';
+    }
+
+    if (message.contains('email not confirmed')) {
+      return 'E-posta adresini onaylaman gerekiyor.';
+    }
+
+    if (message.contains('network')) {
+      return 'İnternet bağlantını kontrol et.';
+    }
+
+    return 'Giriş sırasında bir hata oluştu. Tekrar deneyin.';
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -72,6 +90,10 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final secondaryText = isDark ? const Color(0xFFA7A9B0) : Colors.black54;
+
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -90,10 +112,10 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Hayatını tek yerde yönet.',
                     style: TextStyle(
-                      color: Colors.black54,
+                      color: secondaryText,
                       fontSize: 15,
                     ),
                   ),

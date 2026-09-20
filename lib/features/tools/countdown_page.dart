@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../utils/confirm_dialog.dart';
+import '../../utils/error_messages.dart';
+
 class CountdownPage extends StatefulWidget {
   const CountdownPage({super.key});
 
@@ -55,7 +58,10 @@ class _CountdownPageState extends State<CountdownPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sayaçlar yüklenemedi: $error',
+            friendlyErrorMessage(
+              error,
+              'Sayaçlar yüklenemedi. Tekrar deneyin.',
+            ),
           ),
         ),
       );
@@ -170,7 +176,10 @@ class _CountdownPageState extends State<CountdownPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sayaç oluşturulamadı: $error',
+            friendlyErrorMessage(
+              error,
+              'Sayaç oluşturulamadı. Tekrar deneyin.',
+            ),
           ),
         ),
       );
@@ -189,6 +198,14 @@ class _CountdownPageState extends State<CountdownPage> {
     final user = _supabase.auth.currentUser;
 
     if (user == null) return;
+
+    final confirmed = await showPremiumConfirmDialog(
+      context,
+      title: 'Sayacı sil',
+      message: 'Bu sayaç silinecek. Bu işlem geri alınamaz.',
+    );
+
+    if (!confirmed) return;
 
     try {
       await _supabase
@@ -214,7 +231,10 @@ class _CountdownPageState extends State<CountdownPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sayaç silinemedi: $error',
+            friendlyErrorMessage(
+              error,
+              'Sayaç silinemedi. Tekrar deneyin.',
+            ),
           ),
         ),
       );
@@ -446,6 +466,14 @@ class _CountdownPageState extends State<CountdownPage> {
   Widget build(
     BuildContext context,
   ) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final surface = isDark ? const Color(0xFF171A1F) : Colors.white;
+    final border = isDark ? const Color(0xFF2B2F36) : Colors.black12;
+    final secondaryText =
+        isDark ? const Color(0xFFA7A9B0) : Colors.black54;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -493,10 +521,10 @@ class _CountdownPageState extends State<CountdownPage> {
               height: 6,
             ),
 
-            const Text(
+            Text(
               'Popüler tarihlerden birini seç veya kendi sayacını oluştur.',
               style: TextStyle(
-                color: Colors.black54,
+                color: secondaryText,
                 fontSize: 13,
               ),
             ),
@@ -551,7 +579,7 @@ class _CountdownPageState extends State<CountdownPage> {
                               .all(16),
                       decoration:
                           BoxDecoration(
-                        color: Colors.white,
+                        color: surface,
                         borderRadius:
                             BorderRadius
                                 .circular(
@@ -559,8 +587,7 @@ class _CountdownPageState extends State<CountdownPage> {
                         ),
                         border:
                             Border.all(
-                          color:
-                              Colors.black12,
+                          color: border,
                         ),
                       ),
                       child: Column(
@@ -633,30 +660,29 @@ class _CountdownPageState extends State<CountdownPage> {
                 ),
                 decoration:
                     BoxDecoration(
-                  color: Colors.white,
+                  color: surface,
                   borderRadius:
                       BorderRadius.circular(
                     20,
                   ),
                   border: Border.all(
-                    color:
-                        Colors.black12,
+                    color: border,
                   ),
                 ),
                 child:
-                    const Column(
+                    Column(
                   children: [
-                    Icon(
+                    const Icon(
                       Icons
                           .hourglass_empty_rounded,
                       size: 34,
                     ),
 
-                    SizedBox(
+                    const SizedBox(
                       height: 10,
                     ),
 
-                    Text(
+                    const Text(
                       'Henüz sayaç yok.',
                       style: TextStyle(
                         fontWeight:
@@ -665,7 +691,7 @@ class _CountdownPageState extends State<CountdownPage> {
                       ),
                     ),
 
-                    SizedBox(
+                    const SizedBox(
                       height: 5,
                     ),
 
@@ -675,8 +701,7 @@ class _CountdownPageState extends State<CountdownPage> {
                           TextAlign.center,
                       style:
                           TextStyle(
-                        color:
-                            Colors.black54,
+                        color: secondaryText,
                         fontSize: 13,
                       ),
                     ),
@@ -705,7 +730,7 @@ class _CountdownPageState extends State<CountdownPage> {
                             .all(18),
                     decoration:
                         BoxDecoration(
-                      color: Colors.white,
+                      color: surface,
                       borderRadius:
                           BorderRadius
                               .circular(
@@ -713,8 +738,7 @@ class _CountdownPageState extends State<CountdownPage> {
                       ),
                       border:
                           Border.all(
-                        color:
-                            Colors.black12,
+                        color: border,
                       ),
                     ),
                     child: Row(
@@ -794,9 +818,8 @@ class _CountdownPageState extends State<CountdownPage> {
                                   target,
                                 ),
                                 style:
-                                    const TextStyle(
-                                  color:
-                                      Colors.black54,
+                                    TextStyle(
+                                  color: secondaryText,
                                   fontSize:
                                       12,
                                 ),

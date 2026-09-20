@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../utils/error_messages.dart';
 import 'premium_page.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -92,7 +93,10 @@ class ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Profil yüklenemedi: $error',
+            friendlyErrorMessage(
+              error,
+              'Profil yüklenemedi. Aşağı çekerek tekrar deneyebilirsin.',
+            ),
           ),
         ),
       );

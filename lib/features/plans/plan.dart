@@ -29,6 +29,9 @@ class Plan {
   // Örn: 15, 30, 45, 60
   final int? reminderMinutesBefore;
 
+  // Serbest metin not (opsiyonel).
+  final String? note;
+
   final DateTime createdAt;
 
   const Plan({
@@ -40,6 +43,7 @@ class Plan {
     required this.isCompleted,
     required this.reminderEnabled,
     this.reminderMinutesBefore,
+    this.note,
     required this.createdAt,
   });
 }

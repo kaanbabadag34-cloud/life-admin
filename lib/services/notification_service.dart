@@ -42,7 +42,9 @@ class NotificationService {
       settings: initializationSettings,
     );
 
-    await requestPermissions();
+    // İzin, uygulama açılışında değil kullanıcı ilk kez bir hatırlatıcı
+    // kurduğunda istenir (schedulePlanReminder). Böylece açılışta izin
+    // bombardımanı olmaz.
   }
 
   Future<void> requestPermissions() async {
@@ -79,6 +81,10 @@ class NotificationService {
       return;
     }
 
+    // İzin yalnızca kullanıcı gerçekten bir hatırlatıcı kurmak istediğinde
+    // istenir (açılışta değil).
+    await requestPermissions();
+
     final scheduledDate =
         tz.TZDateTime.from(
       reminderTime,
@@ -87,8 +93,8 @@ class NotificationService {
 
     await _notifications.zonedSchedule(
       id: id,
-      title: 'Yaklaşan plan',
-      body: title,
+      title: '$title yaklaşıyor',
+      body: null,
       scheduledDate: scheduledDate,
       notificationDetails:
           const NotificationDetails(

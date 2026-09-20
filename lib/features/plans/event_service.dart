@@ -5,6 +5,16 @@ import 'plan.dart';
 class EventService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
+  // Supabase'de henüz `events.note` migration'ı uygulanmamışsa PostgREST
+  // "Could not find the 'note' column" hatası fırlatır. Migration
+  // uygulanana kadar görev ekleme/güncelleme tamamen çökmesin diye bu
+  // durumda note alanı olmadan tekrar deneriz.
+  bool _isMissingNoteColumn(Object error) {
+    if (error is! PostgrestException) return false;
+    final message = error.message.toLowerCase();
+    return message.contains('note') && message.contains('column');
+  }
+
   Future<void> addPlan(Plan plan) async {
     final user = _supabase.auth.currentUser;
 
@@ -12,7 +22,7 @@ class EventService {
       throw Exception('Kullanıcı giriş yapmamış.');
     }
 
-    await _supabase.from('events').insert({
+    final payload = {
       'user_id': user.id,
       'title': plan.title,
       'event_type': plan.category.name,
@@ -22,7 +32,17 @@ class EventService {
       'reminder_minutes_before':
           plan.reminderEnabled ? plan.reminderMinutesBefore : null,
       'source': plan.source.name,
-    });
+      'note': plan.note,
+    };
+
+    try {
+      await _supabase.from('events').insert(payload);
+    } catch (error) {
+      if (!_isMissingNoteColumn(error)) rethrow;
+
+      payload.remove('note');
+      await _supabase.from('events').insert(payload);
+    }
   }
 
   Future<void> deletePlan(String id) async {
@@ -80,6 +100,46 @@ class EventService {
         })
         .eq('id', id)
         .eq('user_id', user.id);
+  }
+
+  // Home ekranındaki görev detay sayfası başlık, tarih, saat ve notu tek
+  // seferde günceller. Mevcut updateDateTime/updateReminder akışlarını
+  // bozmamak için ayrı bir metot olarak eklendi.
+  Future<void> updatePlanSchedule({
+    required String id,
+    required DateTime? dateTime,
+    String? note,
+    String? title,
+  }) async {
+    final user = _supabase.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('Kullanıcı giriş yapmamış.');
+    }
+
+    final payload = {
+      'starts_at': dateTime?.toUtc().toIso8601String(),
+      'note': note,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+      'title': ?title,
+    };
+
+    try {
+      await _supabase
+          .from('events')
+          .update(payload)
+          .eq('id', id)
+          .eq('user_id', user.id);
+    } catch (error) {
+      if (!_isMissingNoteColumn(error)) rethrow;
+
+      payload.remove('note');
+      await _supabase
+          .from('events')
+          .update(payload)
+          .eq('id', id)
+          .eq('user_id', user.id);
+    }
   }
 
   Future<void> updateReminder({
@@ -149,6 +209,7 @@ class EventService {
         reminderMinutesBefore:
             (row['reminder_minutes_before'] as num?)
                 ?.toInt(),
+        note: row['note'] as String?,
         createdAt: DateTime.parse(
           row['created_at'] as String,
         ).toLocal(),

@@ -3,6 +3,12 @@ import 'package:flutter/material.dart';
 class AppTheme {
   AppTheme._();
 
+  // Gerçek iPhone'da ".SF Pro Text/Display" isimleri iOS'un kendi sistem
+  // fontuna (San Francisco) çözümlenir. Başka platformlarda bu isimler
+  // bulunamazsa Flutter sessizce platform varsayılanına düşer — güvenli.
+  static const String _fontDisplay = '.SF Pro Display';
+  static const String _fontText = '.SF Pro Text';
+
   // =========================
   // BRAND
   // =========================
@@ -41,14 +47,13 @@ class AppTheme {
     final scheme = ColorScheme.fromSeed(
       seedColor: accent,
       brightness: Brightness.light,
-    ).copyWith(
-      primary: accent,
-      surface: lightSurface,
-    );
+    ).copyWith(primary: accent, surface: lightSurface);
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+
+      fontFamily: _fontText,
 
       colorScheme: scheme,
 
@@ -69,12 +74,14 @@ class AppTheme {
 
       textTheme: const TextTheme(
         headlineLarge: TextStyle(
+          fontFamily: _fontDisplay,
           color: lightText,
           fontSize: 28,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.7,
         ),
         titleLarge: TextStyle(
+          fontFamily: _fontDisplay,
           color: lightText,
           fontSize: 22,
           fontWeight: FontWeight.w700,
@@ -84,14 +91,8 @@ class AppTheme {
           fontSize: 16,
           fontWeight: FontWeight.w600,
         ),
-        bodyLarge: TextStyle(
-          color: lightText,
-          fontSize: 15,
-        ),
-        bodyMedium: TextStyle(
-          color: lightTextSecondary,
-          fontSize: 14,
-        ),
+        bodyLarge: TextStyle(color: lightText, fontSize: 15),
+        bodyMedium: TextStyle(color: lightTextSecondary, fontSize: 14),
       ),
 
       filledButtonTheme: FilledButtonThemeData(
@@ -99,12 +100,28 @@ class AppTheme {
           backgroundColor: accent,
           foregroundColor: Colors.white,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 14,
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
+
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: lightText,
+          side: const BorderSide(color: lightBorder),
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
         ),
       ),
@@ -112,37 +129,49 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: lightBackground,
-        hintStyle: const TextStyle(
-          color: lightTextSecondary,
-        ),
+        hintStyle: const TextStyle(color: lightTextSecondary),
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 15,
         ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: lightBorder,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: lightBorder),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: lightBorder,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: lightBorder),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: accent,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: accent, width: 1.4),
         ),
+      ),
+
+      dialogTheme: DialogThemeData(
+        backgroundColor: lightSurface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
 
       bottomSheetTheme: const BottomSheetThemeData(
         backgroundColor: lightSurface,
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
+      ),
+
+      // KRİTİK: koyu temanın aksine açık temada snackBarTheme hiç
+      // tanımlanmamıştı — bu yüzden Flutter'ın varsayılan
+      // SnackBarBehavior.fixed'i devreye giriyordu. "fixed" bir SnackBar
+      // görünürken Scaffold, FloatingActionButton'ı OTOMATİK OLARAK yukarı
+      // kaydırır (SnackBar kapanınca geri iner) — "+" butonunun mesaj
+      // görünürken kapanıyor/kayıyormuş gibi algılanmasının kök nedeni
+      // buydu. floating behavior, FAB'ı hiç etkilemez.
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: lightSurface,
+        contentTextStyle: const TextStyle(color: lightText),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
@@ -155,14 +184,13 @@ class AppTheme {
     final scheme = ColorScheme.fromSeed(
       seedColor: accent,
       brightness: Brightness.dark,
-    ).copyWith(
-      primary: accentLight,
-      surface: darkSurface,
-    );
+    ).copyWith(primary: accentLight, surface: darkSurface);
 
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+
+      fontFamily: _fontText,
 
       colorScheme: scheme,
 
@@ -183,12 +211,14 @@ class AppTheme {
 
       textTheme: const TextTheme(
         headlineLarge: TextStyle(
+          fontFamily: _fontDisplay,
           color: darkText,
           fontSize: 28,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.7,
         ),
         titleLarge: TextStyle(
+          fontFamily: _fontDisplay,
           color: darkText,
           fontSize: 22,
           fontWeight: FontWeight.w700,
@@ -198,31 +228,24 @@ class AppTheme {
           fontSize: 16,
           fontWeight: FontWeight.w600,
         ),
-        bodyLarge: TextStyle(
-          color: darkText,
-          fontSize: 15,
-        ),
-        bodyMedium: TextStyle(
-          color: darkTextSecondary,
-          fontSize: 14,
-        ),
+        bodyLarge: TextStyle(color: darkText, fontSize: 15),
+        bodyMedium: TextStyle(color: darkTextSecondary, fontSize: 14),
       ),
 
-      iconTheme: const IconThemeData(
-        color: darkText,
-      ),
+      iconTheme: const IconThemeData(color: darkText),
 
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: accent,
           foregroundColor: Colors.white,
           elevation: 0,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 14,
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
           ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
           ),
         ),
       ),
@@ -230,15 +253,14 @@ class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: darkText,
-          side: const BorderSide(
-            color: darkBorder,
+          side: const BorderSide(color: darkBorder),
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            letterSpacing: -0.1,
           ),
-          padding: const EdgeInsets.symmetric(
-            horizontal: 18,
-            vertical: 14,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
           ),
         ),
       ),
@@ -247,13 +269,9 @@ class AppTheme {
         filled: true,
         fillColor: const Color(0xFF111318),
 
-        hintStyle: const TextStyle(
-          color: darkTextSecondary,
-        ),
+        hintStyle: const TextStyle(color: darkTextSecondary),
 
-        labelStyle: const TextStyle(
-          color: darkTextSecondary,
-        ),
+        labelStyle: const TextStyle(color: darkTextSecondary),
 
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
@@ -261,76 +279,50 @@ class AppTheme {
         ),
 
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: darkBorder,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: darkBorder),
         ),
 
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: darkBorder,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: darkBorder),
         ),
 
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(
-            color: accentLight,
-          ),
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(color: accentLight, width: 1.4),
         ),
       ),
 
       navigationBarTheme: NavigationBarThemeData(
         height: 72,
 
-        backgroundColor: const Color(
-          0xFF121418,
-        ),
+        backgroundColor: const Color(0xFF121418),
 
-        indicatorColor: accent.withValues(
-          alpha: 0.25,
-        ),
+        indicatorColor: accent.withValues(alpha: 0.25),
 
         elevation: 0,
 
         surfaceTintColor: Colors.transparent,
 
-        labelTextStyle:
-            WidgetStateProperty.resolveWith(
-          (states) {
-            final selected = states.contains(
-              WidgetState.selected,
-            );
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
 
-            return TextStyle(
-              color: selected
-                  ? darkText
-                  : darkTextSecondary,
-              fontSize: 12,
-              fontWeight: selected
-                  ? FontWeight.w600
-                  : FontWeight.w400,
-            );
-          },
-        ),
+          return TextStyle(
+            color: selected ? darkText : darkTextSecondary,
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          );
+        }),
 
-        iconTheme:
-            WidgetStateProperty.resolveWith(
-          (states) {
-            final selected = states.contains(
-              WidgetState.selected,
-            );
+        iconTheme: WidgetStateProperty.resolveWith((states) {
+          final selected = states.contains(WidgetState.selected);
 
-            return IconThemeData(
-              color: selected
-                  ? accentLight
-                  : darkTextSecondary,
-              size: 23,
-            );
-          },
-        ),
+          return IconThemeData(
+            color: selected ? accentLight : darkTextSecondary,
+            size: 23,
+          );
+        }),
       ),
 
       bottomSheetTheme: const BottomSheetThemeData(
@@ -342,21 +334,15 @@ class AppTheme {
 
       snackBarTheme: SnackBarThemeData(
         backgroundColor: darkSurfaceSoft,
-        contentTextStyle: const TextStyle(
-          color: darkText,
-        ),
+        contentTextStyle: const TextStyle(color: darkText),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
 
       dialogTheme: DialogThemeData(
         backgroundColor: darkSurface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       ),
     );
   }

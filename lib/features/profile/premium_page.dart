@@ -5,6 +5,14 @@ class PremiumPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final surface = isDark ? const Color(0xFF171A1F) : Colors.white;
+    final border = isDark ? const Color(0xFF2B2F36) : Colors.black12;
+    final secondaryText = isDark ? const Color(0xFFA7A9B0) : Colors.black54;
+    final tertiaryText = isDark ? const Color(0xFF7A7D85) : Colors.black45;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -93,26 +101,26 @@ class PremiumPage extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: surface,
               borderRadius: BorderRadius.circular(22),
               border: Border.all(
-                color: Colors.black12,
+                color: border,
               ),
             ),
-            child: const Column(
+            child: Column(
               children: [
-                Text(
+                const Text(
                   '₺249',
                   style: TextStyle(
                     fontSize: 34,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   '/ ay',
                   style: TextStyle(
-                    color: Colors.black54,
+                    color: secondaryText,
                     fontSize: 15,
                   ),
                 ),
@@ -154,11 +162,11 @@ class PremiumPage extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          const Text(
+          Text(
             'Abonelik iptal edilmediği sürece otomatik olarak yenilenir. Satın alma ve abonelik yönetimi App Store üzerinden yapılır.',
             textAlign: TextAlign.center,
             style: TextStyle(
-              color: Colors.black45,
+              color: tertiaryText,
               fontSize: 12,
               height: 1.5,
             ),
@@ -182,13 +190,23 @@ class _PremiumFeature extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final surface = isDark ? const Color(0xFF171A1F) : Colors.white;
+    final border = isDark ? const Color(0xFF2B2F36) : Colors.black12;
+    final secondaryText = isDark ? const Color(0xFFA7A9B0) : Colors.black54;
+    final iconBg = isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.06);
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: Colors.black12,
+          color: border,
         ),
       ),
       child: Row(
@@ -198,9 +216,7 @@ class _PremiumFeature extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: Colors.black.withValues(
-                alpha: 0.06,
-              ),
+              color: iconBg,
               borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
@@ -225,8 +241,8 @@ class _PremiumFeature extends StatelessWidget {
                 const SizedBox(height: 5),
                 Text(
                   description,
-                  style: const TextStyle(
-                    color: Colors.black54,
+                  style: TextStyle(
+                    color: secondaryText,
                     fontSize: 13,
                     height: 1.4,
                   ),

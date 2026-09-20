@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../utils/confirm_dialog.dart';
+import '../../utils/error_messages.dart';
+
 class JournalPage extends StatefulWidget {
   const JournalPage({super.key});
 
@@ -142,7 +145,9 @@ class _JournalPageState extends State<JournalPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Kaydedilemedi: $error'),
+          content: Text(
+            friendlyErrorMessage(error, 'Günlük kaydedilemedi. Tekrar deneyin.'),
+          ),
         ),
       );
     } finally {
@@ -184,6 +189,14 @@ class _JournalPageState extends State<JournalPage> {
 
     if (user == null) return;
 
+    final confirmed = await showPremiumConfirmDialog(
+      context,
+      title: 'Günlüğü sil',
+      message: 'Bu tarihteki günlük kaydı silinecek. Bu işlem geri alınamaz.',
+    );
+
+    if (!confirmed) return;
+
     try {
       await _supabase
           .from('journal_entries')
@@ -207,7 +220,9 @@ class _JournalPageState extends State<JournalPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Silinemedi: $error'),
+          content: Text(
+            friendlyErrorMessage(error, 'Günlük silinemedi. Tekrar deneyin.'),
+          ),
         ),
       );
     }
@@ -221,6 +236,14 @@ class _JournalPageState extends State<JournalPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final surface = isDark ? const Color(0xFF171A1F) : Colors.white;
+    final border = isDark ? const Color(0xFF2B2F36) : Colors.black12;
+    final secondaryText =
+        isDark ? const Color(0xFFA7A9B0) : Colors.black54;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
@@ -277,10 +300,10 @@ class _JournalPageState extends State<JournalPage> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: surface,
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(
-                  color: Colors.black12,
+                  color: border,
                 ),
               ),
               child: TextField(
@@ -345,10 +368,10 @@ class _JournalPageState extends State<JournalPage> {
           const SizedBox(height: 12),
 
           if (_entries.isEmpty)
-            const Text(
+            Text(
               'Henüz günlük kaydın yok.',
               style: TextStyle(
-                color: Colors.black54,
+                color: secondaryText,
               ),
             ),
 
@@ -369,7 +392,7 @@ class _JournalPageState extends State<JournalPage> {
                   bottom: 10,
                 ),
                 child: Material(
-                  color: Colors.white,
+                  color: surface,
                   borderRadius: BorderRadius.circular(18),
                   child: InkWell(
                     borderRadius: BorderRadius.circular(18),
@@ -380,7 +403,7 @@ class _JournalPageState extends State<JournalPage> {
                         borderRadius:
                             BorderRadius.circular(18),
                         border: Border.all(
-                          color: Colors.black12,
+                          color: border,
                         ),
                       ),
                       child: Row(
@@ -413,8 +436,8 @@ class _JournalPageState extends State<JournalPage> {
                                   maxLines: 2,
                                   overflow:
                                       TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
+                                  style: TextStyle(
+                                    color: secondaryText,
                                     fontSize: 13,
                                   ),
                                 ),
@@ -422,9 +445,9 @@ class _JournalPageState extends State<JournalPage> {
                             ),
                           ),
 
-                          const Icon(
+                          Icon(
                             Icons.chevron_right_rounded,
-                            color: Colors.black38,
+                            color: secondaryText,
                           ),
                         ],
                       ),
