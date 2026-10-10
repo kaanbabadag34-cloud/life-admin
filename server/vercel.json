@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/verify-purchase.ts": {
+      "includeFiles": "certs/**"
+    }
+  }
+}

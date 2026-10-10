@@ -1,0 +1,17 @@
+{
+  "name": "life-admin-verify-purchase",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Vercel Node serverless function: Apple IAP signed-transaction verification for Life Admin Premium.",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@apple/app-store-server-library": "^1.0.0",
+    "@supabase/supabase-js": "^2.0.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "^3.0.0",
+    "typescript": "^5.0.0"
+  }
+}
