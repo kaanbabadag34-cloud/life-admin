@@ -8,8 +8,8 @@ import 'purchase_service.dart';
 // paywall'larında bu linklerin ÇALIŞIYOR olmasını zorunlu tutuyor
 // (App Store Review Guidelines 3.1.2) — bu yüzden placeholder olarak
 // bırakılmamalı.
-const String _termsUrl = 'https://life-admin.app/terms';
-const String _privacyUrl = 'https://life-admin.app/privacy';
+const String _termsUrl = 'https://applifeadmin.com/terms';
+const String _privacyUrl = 'https://applifeadmin.com/privacy';
 
 class PremiumPage extends StatefulWidget {
   const PremiumPage({super.key});
