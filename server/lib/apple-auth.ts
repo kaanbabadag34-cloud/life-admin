@@ -4,7 +4,7 @@
 // APPLE_CLIENT_ID. Private key, client secret JWT, authorization code ve
 // refresh token HİÇBİR ZAMAN loglanmaz.
 
-import { sign as cryptoSign, createPrivateKey } from 'node:crypto';
+import { sign as cryptoSign, verify as cryptoVerify, createPrivateKey, createPublicKey } from 'node:crypto';
 import { request } from 'node:https';
 
 const APPLE_AUDIENCE = 'https://appleid.apple.com';
@@ -51,7 +51,38 @@ export function normalizePrivateKey(raw: string): string {
 
   key = key.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
 
+  // Satır sonları boşluğa dönüşmüş (tek satırlık) PEM'leri de onar:
+  // gövdeyi alıp boşlukları atar, 64 karakterlik satırlara böler;
+  // BEGIN/END satırları korunur.
+  const pem = key.match(/-----BEGIN PRIVATE KEY-----([\s\S]*?)-----END PRIVATE KEY-----/);
+
+  if (pem) {
+    const body = pem[1].replace(/\s+/g, '');
+    const lines = body.match(/.{1,64}/g) ?? [];
+
+    return ['-----BEGIN PRIVATE KEY-----', ...lines, '-----END PRIVATE KEY-----'].join('\n');
+  }
+
   return key.trim();
+}
+
+// Vercel env değerlerinde sık görülen sorun: değerin sonunda/başında
+// görünmez boşluk, "\n" veya sarmalayan tırnak. Team ID / Key ID / Client ID
+// bu yüzden JWT'de bir karakter farklı olur ve Apple "invalid_client" döner.
+function cleanEnvValue(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+
+  let value = raw.trim();
+
+  if (
+    value.length >= 2 &&
+    ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'")))
+  ) {
+    value = value.slice(1, -1).trim();
+  }
+
+  return value;
 }
 
 function requireAppleEnv(): {
@@ -60,10 +91,10 @@ function requireAppleEnv(): {
   privateKey: string;
   clientId: string;
 } {
-  const teamId = process.env.APPLE_TEAM_ID;
-  const keyId = process.env.APPLE_KEY_ID;
+  const teamId = cleanEnvValue(process.env.APPLE_TEAM_ID);
+  const keyId = cleanEnvValue(process.env.APPLE_KEY_ID);
   const rawKey = process.env.APPLE_PRIVATE_KEY;
-  const clientId = process.env.APPLE_CLIENT_ID;
+  const clientId = cleanEnvValue(process.env.APPLE_CLIENT_ID);
 
   const missing = [
     ['APPLE_TEAM_ID', teamId],
@@ -84,6 +115,92 @@ function requireAppleEnv(): {
     privateKey: normalizePrivateKey(rawKey as string),
     clientId: clientId as string,
   };
+}
+
+// Apple Team ID ve Key ID: tam 10 karakter, büyük harf/rakam.
+const APPLE_ID_PATTERN = /^[A-Z0-9]{10}$/;
+
+// Hata ayıklama için GÜVENLİ özet: env değerlerini (clientId hariç),
+// private key'i, JWT'yi veya imzayı İÇERMEZ — yalnızca var/yok, uzunluk,
+// format ve key tipi bilgisi.
+export function describeAppleCredentials(): Record<string, unknown> {
+  const rawTeamId = process.env.APPLE_TEAM_ID;
+  const rawKeyId = process.env.APPLE_KEY_ID;
+  const rawClientId = process.env.APPLE_CLIENT_ID;
+  const rawKey = process.env.APPLE_PRIVATE_KEY;
+
+  const teamId = cleanEnvValue(rawTeamId);
+  const keyId = cleanEnvValue(rawKeyId);
+  const clientId = cleanEnvValue(rawClientId);
+
+  const diagnostics: Record<string, unknown> = {
+    hasTeamId: !!teamId,
+    hasKeyId: !!keyId,
+    hasPrivateKey: !!rawKey,
+    clientId,
+    clientIdIsExpectedBundleId: clientId === 'com.kaan.lifeadmin',
+    teamIdLooksValid: teamId ? APPLE_ID_PATTERN.test(teamId) : false,
+    keyIdLooksValid: keyId ? APPLE_ID_PATTERN.test(keyId) : false,
+    teamIdHadSurroundingWhitespace: rawTeamId !== undefined && rawTeamId !== rawTeamId.trim(),
+    keyIdHadSurroundingWhitespace: rawKeyId !== undefined && rawKeyId !== rawKeyId.trim(),
+    clientIdHadSurroundingWhitespace:
+      rawClientId !== undefined && rawClientId !== rawClientId.trim(),
+    jwtHeaderClaims: ['alg', 'kid', 'typ'],
+    jwtPayloadClaims: ['iss', 'iat', 'exp', 'aud', 'sub'],
+    jwtAudience: APPLE_AUDIENCE,
+    jwtTtlSeconds: CLIENT_SECRET_TTL_SECONDS,
+    serverUnixTime: Math.floor(Date.now() / 1000),
+  };
+
+  if (rawKey) {
+    const normalized = normalizePrivateKey(rawKey);
+
+    diagnostics.privateKeyHasBeginMarker = normalized.includes('-----BEGIN PRIVATE KEY-----');
+    diagnostics.privateKeyHasEndMarker = normalized.includes('-----END PRIVATE KEY-----');
+    diagnostics.privateKeyLineCount = normalized.split('\n').length;
+
+    try {
+      const keyObject = createPrivateKey(normalized);
+      const details = keyObject.asymmetricKeyDetails as { namedCurve?: string } | undefined;
+
+      diagnostics.privateKeyParses = true;
+      diagnostics.privateKeyType = keyObject.asymmetricKeyType;
+      diagnostics.privateKeyCurve = details?.namedCurve;
+
+      // İmza formatı kendi kendine doğrulanıyor: ürettiğimiz 64-byte R||S
+      // imzası, aynı key'in public kısmıyla geçerli mi?
+      const probe = Buffer.from('apple-auth-self-check');
+      const signature = cryptoSign('sha256', probe, {
+        key: keyObject,
+        dsaEncoding: 'ieee-p1363',
+      });
+
+      diagnostics.signatureLengthBytes = signature.length;
+      diagnostics.signatureSelfVerifies = cryptoVerify(
+        'sha256',
+        probe,
+        { key: createPublicKey(keyObject), dsaEncoding: 'ieee-p1363' },
+        signature,
+      );
+    } catch (_error) {
+      diagnostics.privateKeyParses = false;
+    }
+  }
+
+  return diagnostics;
+}
+
+function logAppleFailureDiagnostics(operation: string, status: number, appleError?: string) {
+  console.error(
+    JSON.stringify({
+      event: 'apple-credentials-diagnostics',
+      operation,
+      appleStatus: status,
+      appleError,
+      ...describeAppleCredentials(),
+      at: new Date().toISOString(),
+    }),
+  );
 }
 
 export function getAppleClientId(): string {
@@ -186,11 +303,10 @@ export async function exchangeAuthorizationCode(authorizationCode: string): Prom
   });
 
   if (result.status !== 200) {
-    throw new AppleRequestError(
-      'Apple token değişimi başarısız.',
-      result.status,
-      safeAppleError(result.body),
-    );
+    const appleError = safeAppleError(result.body);
+    logAppleFailureDiagnostics('token-exchange', result.status, appleError);
+
+    throw new AppleRequestError('Apple token değişimi başarısız.', result.status, appleError);
   }
 
   let refreshToken: unknown;
@@ -220,11 +336,10 @@ export async function revokeRefreshToken(refreshToken: string): Promise<void> {
   });
 
   if (result.status !== 200) {
-    throw new AppleRequestError(
-      'Apple token revoke başarısız.',
-      result.status,
-      safeAppleError(result.body),
-    );
+    const appleError = safeAppleError(result.body);
+    logAppleFailureDiagnostics('token-revoke', result.status, appleError);
+
+    throw new AppleRequestError('Apple token revoke başarısız.', result.status, appleError);
   }
 }
 
