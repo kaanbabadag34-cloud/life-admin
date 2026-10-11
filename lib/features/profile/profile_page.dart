@@ -167,14 +167,15 @@ class ProfilePageState extends State<ProfilePage> {
     await refreshProfile();
   }
 
+  // Önce üstteki route'lar (Hesap ve Güvenlik vb.) kapatılıyor, SONRA
+  // oturum kapatılıyor: signOut anında AuthGate AppShell'i (ve bu sayfayı)
+  // sökeceği için sonrasında `mounted` kontrolüne güvenilemez. Login'e
+  // geçişi AuthGate yapıyor.
   Future<void> _signOut() async {
+    final navigator = Navigator.of(context);
+    navigator.popUntil((route) => route.isFirst);
+
     await _supabase.auth.signOut();
-
-    if (!mounted) return;
-
-    Navigator.of(context).popUntil(
-      (route) => route.isFirst,
-    );
   }
 
   String _formatResetDate() {

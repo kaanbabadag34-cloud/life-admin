@@ -51,6 +51,11 @@ class LifeAdminApp extends StatelessWidget {
   }
 }
 
+// Auth state TEK kaynak: oturum açılınca/kapanınca (giriş, çıkış, hesap
+// silme, başka cihazdan iptal) ekran, restart gerekmeden anında değişir.
+// Kimlik doğrulama sonrası hiçbir ekran manuel Navigator ile yönlendirme
+// yapmaz. `const AppShell()` aynı instance olduğu için token yenileme gibi
+// event'ler AppShell state'ini sıfırlamaz.
 class AuthGate extends StatelessWidget {
   const AuthGate({
     super.key,
@@ -58,13 +63,17 @@ class AuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final session =
-        Supabase.instance.client.auth.currentSession;
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
+      builder: (context, _) {
+        final session = Supabase.instance.client.auth.currentSession;
 
-    if (session != null) {
-      return const AppShell();
-    }
+        if (session != null) {
+          return const AppShell();
+        }
 
-    return const LoginPage();
+        return const LoginPage();
+      },
+    );
   }
 }

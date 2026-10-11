@@ -6,8 +6,6 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../auth/login_page.dart';
-
 const String _deleteAccountEndpoint =
     'https://life-admin-server.vercel.app/api/delete-account';
 
@@ -118,10 +116,9 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
         if (kDebugMode) debugPrint('local sign-out after delete: $error');
       }
 
-      navigator.pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-        (route) => false,
-      );
+      // Login'e geçişi AuthGate yapıyor (signOut → oturum yok). Üstte
+      // kalan Profil/Hesap ve Güvenlik route'larını kapatıyoruz.
+      navigator.popUntil((route) => route.isFirst);
     } finally {
       _flowOpen = false;
     }
