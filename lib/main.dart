@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/app.dart';
+import 'features/profile/purchase_service.dart';
 import 'services/notification_service.dart';
 
 Future<void> main() async {
@@ -26,6 +29,13 @@ Future<void> main() async {
 
   // Bildirim sistemi
   await NotificationService.instance.initialize();
+
+  // Satın alma (in_app_purchase) transaction listener'ı — Apple'ın kendi
+  // önerdiği gibi mümkün olduğunca erken bağlanıyor: uygulama kapalıyken
+  // tamamlanan bir işlem, purchaseStream üzerinden bir sonraki açılışta
+  // gelebilir. App Store'a ulaşmayı BEKLEMEDEN (await'siz) başlatılıyor ki
+  // giriş ekranı bu ağ çağrısının arkasında kilitlenmesin.
+  unawaited(PurchaseService.instance.initialize());
 
   runApp(const LifeAdminApp());
 }

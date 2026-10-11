@@ -14,11 +14,17 @@ class JournalPage extends StatefulWidget {
 class _JournalPageState extends State<JournalPage> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   DateTime _selectedDate = DateTime.now();
 
   bool _loading = true;
   bool _saving = false;
+  // Sadece ilk yüklemede spinner göster — sonraki her _loadEntryForSelectedDate
+  // çağrısında (tarih değiştirme, geçmiş kayıt açma) tekrar _loading=true
+  // yapmak, editör kartını anlık olarak küçültüp büyütüyor ve bu da
+  // sayfanın yukarı-aşağı zıplamış gibi görünmesine sebep oluyordu.
+  bool _hasLoadedEntryOnce = false;
 
   List<Map<String, dynamic>> _entries = [];
 
@@ -73,17 +79,30 @@ class _JournalPageState extends State<JournalPage> {
       setState(() {
         _entries = List<Map<String, dynamic>>.from(response);
       });
-    } catch (_) {}
+    } catch (error) {
+      debugPrint('Hata detayı: $error');
+    }
   }
 
   Future<void> _loadEntryForSelectedDate() async {
     final user = _supabase.auth.currentUser;
 
-    if (user == null) return;
+    // Kullanıcı yoksa dahi loading state kapanmalı — aksi halde ekran
+    // sonsuza kadar spinner'da takılı kalır.
+    if (user == null) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+      return;
+    }
 
-    setState(() {
-      _loading = true;
-    });
+    if (mounted && !_hasLoadedEntryOnce) {
+      setState(() {
+        _loading = true;
+      });
+    }
 
     try {
       final response = await _supabase
@@ -97,19 +116,28 @@ class _JournalPageState extends State<JournalPage> {
 
       setState(() {
         _controller.text = response?['content']?.toString() ?? '';
-        _loading = false;
       });
     } catch (_) {
       if (!mounted) return;
 
       setState(() {
         _controller.clear();
-        _loading = false;
       });
+    } finally {
+      // Başarı, hata veya erken çıkış — loading state her durumda kapanır.
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _hasLoadedEntryOnce = true;
+        });
+      }
     }
   }
 
   Future<void> _saveEntry() async {
+    // Kaydet'e basılır basılmaz klavye kapanmalı — sonucu beklemeden.
+    FocusScope.of(context).unfocus();
+
     final user = _supabase.auth.currentUser;
 
     if (user == null) return;
@@ -174,6 +202,7 @@ class _JournalPageState extends State<JournalPage> {
     });
 
     await _loadEntryForSelectedDate();
+    _scrollEditorIntoView();
   }
 
   Future<void> _openEntry(DateTime date) async {
@@ -182,6 +211,21 @@ class _JournalPageState extends State<JournalPage> {
     });
 
     await _loadEntryForSelectedDate();
+    _scrollEditorIntoView();
+  }
+
+  // "Geçmiş Günlükler" listesinde aşağı kaydırılmışken bir kayıt açıldığında,
+  // yüklenen içerik yukarıdaki editör kartına yazılıyor ama kullanıcının
+  // scroll pozisyonu hâlâ aşağıdaydı — bu yüzden "hiçbir şey olmuyor" gibi
+  // görünüyordu. Yumuşak bir scroll ile editörü görünür hale getiriyoruz.
+  void _scrollEditorIntoView() {
+    if (!_scrollController.hasClients) return;
+
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
   Future<void> _deleteEntry() async {
@@ -231,6 +275,7 @@ class _JournalPageState extends State<JournalPage> {
   @override
   void dispose() {
     _controller.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -241,15 +286,19 @@ class _JournalPageState extends State<JournalPage> {
 
     final surface = isDark ? const Color(0xFF171A1F) : Colors.white;
     final border = isDark ? const Color(0xFF2B2F36) : Colors.black12;
-    final secondaryText =
-        isDark ? const Color(0xFFA7A9B0) : Colors.black54;
+    final secondaryText = isDark
+        ? const Color(0xFFA7A9B0)
+        : const Color(0xFF6B7280);
+    final titleColor = isDark ? Colors.white : const Color(0xFF17171A);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           'Günlük',
-          style: TextStyle(
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontSize: 19,
             fontWeight: FontWeight.w700,
+            color: titleColor,
           ),
         ),
         actions: [
@@ -262,6 +311,7 @@ class _JournalPageState extends State<JournalPage> {
         ],
       ),
       body: ListView(
+        controller: _scrollController,
         padding: const EdgeInsets.all(20),
         children: [
           Row(
@@ -269,9 +319,11 @@ class _JournalPageState extends State<JournalPage> {
               Expanded(
                 child: Text(
                   _prettyDate(_selectedDate),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
+                    letterSpacing: -0.4,
+                    color: titleColor,
                   ),
                 ),
               ),
@@ -310,9 +362,19 @@ class _JournalPageState extends State<JournalPage> {
                 controller: _controller,
                 minLines: 12,
                 maxLines: null,
-                decoration: const InputDecoration(
+                style: TextStyle(
+                  fontSize: 15.5,
+                  height: 1.5,
+                  color: titleColor,
+                ),
+                decoration: InputDecoration(
                   hintText:
                       'Bugün ne oldu? Aklından geçenleri buraya yaz...',
+                  hintStyle: TextStyle(
+                    fontSize: 15,
+                    height: 1.4,
+                    color: secondaryText,
+                  ),
                   border: InputBorder.none,
                 ),
               ),
@@ -357,11 +419,13 @@ class _JournalPageState extends State<JournalPage> {
 
           const SizedBox(height: 32),
 
-          const Text(
+          Text(
             'Geçmiş Günlükler',
             style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
+              fontSize: 19,
+              fontWeight: FontWeight.w800,
+              letterSpacing: -0.2,
+              color: titleColor,
             ),
           ),
 
@@ -372,6 +436,8 @@ class _JournalPageState extends State<JournalPage> {
               'Henüz günlük kaydın yok.',
               style: TextStyle(
                 color: secondaryText,
+                fontSize: 13.5,
+                height: 1.4,
               ),
             ),
 
@@ -421,9 +487,10 @@ class _JournalPageState extends State<JournalPage> {
                               children: [
                                 Text(
                                   _prettyDate(date),
-                                  style: const TextStyle(
-                                    fontWeight:
-                                        FontWeight.w700,
+                                  style: TextStyle(
+                                    fontSize: 15.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: titleColor,
                                   ),
                                 ),
 
@@ -438,7 +505,8 @@ class _JournalPageState extends State<JournalPage> {
                                       TextOverflow.ellipsis,
                                   style: TextStyle(
                                     color: secondaryText,
-                                    fontSize: 13,
+                                    fontSize: 12.5,
+                                    height: 1.3,
                                   ),
                                 ),
                               ],

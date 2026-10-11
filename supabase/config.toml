@@ -1,0 +1,2 @@
+[functions.verify-purchase]
+static_files = ["./functions/verify-purchase/certs/*.cer"]

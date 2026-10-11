@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../app/theme/theme_controller.dart';
 import '../../utils/confirm_dialog.dart';
 import '../../utils/error_messages.dart';
 import '../plans/event_service.dart';
@@ -1288,322 +1287,6 @@ class _HomePageState extends State<HomePage>
     );
   }
 
-  void _showMainMenu() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(8, 0, 8, 14),
-                    child: Text(
-                      'Life Admin',
-                      style: TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ),
-                _MenuTile(
-                  icon: Icons.palette_outlined,
-                  title: 'Temalar',
-                  subtitle: 'Uygulamanın görünümünü değiştir',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showThemeOptions();
-                  },
-                ),
-                _MenuTile(
-                  icon: Icons.language_rounded,
-                  title: 'Dil',
-                  subtitle: 'Türkçe',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showLanguageOptions();
-                  },
-                ),
-                _MenuTile(
-                  icon: Icons.favorite_border_rounded,
-                  title: 'Bizi Takip Edin',
-                  subtitle: 'Sosyal medya hesaplarımız',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showSocialOptions();
-                  },
-                ),
-                _MenuTile(
-                  icon: Icons.help_outline_rounded,
-                  title: 'Geri Bildirim / Yardım',
-                  subtitle: 'Sorun bildir veya bize ulaş',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showHelpOptions();
-                  },
-                ),
-                const Divider(height: 28),
-                _MenuTile(
-                  icon: Icons.info_outline_rounded,
-                  title: 'Uygulama Hakkında',
-                  subtitle: 'Life Admin • v1.0',
-                  showArrow: false,
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-
-                    showAboutDialog(
-                      context: context,
-                      applicationName: 'Life Admin',
-                      applicationVersion: '1.0',
-                      applicationLegalese: '© 2026 Life Admin',
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showThemeOptions() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return AnimatedBuilder(
-          animation: themeController,
-          builder: (context, _) {
-            return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const ListTile(
-                      title: Text(
-                        'Tema',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      subtitle: Text('Görünüm tercihini seç'),
-                    ),
-                    _ThemeTile(
-                      icon: Icons.light_mode_outlined,
-                      title: 'Açık',
-                      selected:
-                          themeController.themeMode == ThemeMode.light,
-                      onTap: () {
-                        themeController.setThemeMode(
-                          ThemeMode.light,
-                        );
-                        Navigator.pop(sheetContext);
-                      },
-                    ),
-                    _ThemeTile(
-                      icon: Icons.dark_mode_outlined,
-                      title: 'Koyu',
-                      selected:
-                          themeController.themeMode == ThemeMode.dark,
-                      onTap: () {
-                        themeController.setThemeMode(
-                          ThemeMode.dark,
-                        );
-                        Navigator.pop(sheetContext);
-                      },
-                    ),
-                    _ThemeTile(
-                      icon: Icons.settings_suggest_outlined,
-                      title: 'Sistem',
-                      subtitle: 'Cihaz ayarını kullan',
-                      selected:
-                          themeController.themeMode == ThemeMode.system,
-                      onTap: () {
-                        themeController.setThemeMode(
-                          ThemeMode.system,
-                        );
-                        Navigator.pop(sheetContext);
-                      },
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  void _showLanguageOptions() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const ListTile(
-                  title: Text(
-                    'Dil',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  subtitle: Text('Uygulama dilini seç'),
-                ),
-                ListTile(
-                  leading: const Text(
-                    '🇹🇷',
-                    style: TextStyle(fontSize: 24),
-                  ),
-                  title: const Text('Türkçe'),
-                  trailing: const Icon(Icons.check_rounded),
-                  onTap: () => Navigator.pop(sheetContext),
-                ),
-                ListTile(
-                  leading: const Text(
-                    '🇬🇧',
-                    style: TextStyle(fontSize: 24),
-                  ),
-                  title: const Text('English'),
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showComingSoon('English');
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showSocialOptions() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const ListTile(
-                  title: Text(
-                    'Bizi Takip Edin',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  subtitle: Text(
-                    'Life Admin gelişmelerini takip et',
-                  ),
-                ),
-                _MenuTile(
-                  icon: Icons.camera_alt_outlined,
-                  title: 'Instagram',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showComingSoon('Instagram bağlantısı');
-                  },
-                ),
-                _MenuTile(
-                  icon: Icons.alternate_email_rounded,
-                  title: 'Diğer sosyal hesaplar',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showComingSoon('Sosyal medya bağlantıları');
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showHelpOptions() {
-    showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const ListTile(
-                  title: Text(
-                    'Yardım & Geri Bildirim',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                _MenuTile(
-                  icon: Icons.chat_bubble_outline_rounded,
-                  title: 'Geri Bildirim Gönder',
-                  subtitle: 'Fikrini bizimle paylaş',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showComingSoon('Geri bildirim sistemi');
-                  },
-                ),
-                _MenuTile(
-                  icon: Icons.bug_report_outlined,
-                  title: 'Sorun Bildir',
-                  subtitle: 'Bir hata mı buldun?',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showComingSoon('Sorun bildirme sistemi');
-                  },
-                ),
-                _MenuTile(
-                  icon: Icons.support_agent_rounded,
-                  title: 'Yardım',
-                  subtitle: 'Life Admin kullanımı hakkında destek',
-                  onTap: () {
-                    Navigator.pop(sheetContext);
-                    _showComingSoon('Yardım merkezi');
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  void _showComingSoon(String feature) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$feature yakında aktif olacak.'),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _controller.dispose();
@@ -1646,26 +1329,6 @@ class _HomePageState extends State<HomePage>
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Transform.translate ile sadece görsel olarak sola
-                  // kaydırıyoruz — Row'daki layout boyutu (dolayısıyla
-                  // header'ın genel hizası) değişmiyor.
-                  Transform.translate(
-                    offset: const Offset(-6, 0),
-                    child: IconButton(
-                      onPressed: _showMainMenu,
-                      tooltip: 'Menü',
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 40,
-                        minHeight: 40,
-                      ),
-                      icon: const Icon(
-                        Icons.more_vert_rounded,
-                        size: 26,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2732,16 +2395,12 @@ class _HabitTypeOption extends StatelessWidget {
 class _MenuTile extends StatelessWidget {
   final IconData icon;
   final String title;
-  final String? subtitle;
   final VoidCallback onTap;
-  final bool showArrow;
 
   const _MenuTile({
     required this.icon,
     required this.title,
     required this.onTap,
-    this.subtitle,
-    this.showArrow = true,
   });
 
   @override
@@ -2749,43 +2408,7 @@ class _MenuTile extends StatelessWidget {
     return ListTile(
       leading: Icon(icon),
       title: Text(title),
-      subtitle:
-          subtitle == null ? null : Text(subtitle!),
-      trailing: showArrow
-          ? const Icon(
-              Icons.chevron_right_rounded,
-            )
-          : null,
-      onTap: onTap,
-    );
-  }
-}
-
-class _ThemeTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String? subtitle;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _ThemeTile({
-    required this.icon,
-    required this.title,
-    required this.selected,
-    required this.onTap,
-    this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle:
-          subtitle == null ? null : Text(subtitle!),
-      trailing: selected
-          ? const Icon(Icons.check_rounded)
-          : null,
+      trailing: const Icon(Icons.chevron_right_rounded),
       onTap: onTap,
     );
   }

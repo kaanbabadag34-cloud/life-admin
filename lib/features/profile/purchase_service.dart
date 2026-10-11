@@ -13,7 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // TODO: Vercel'e deploy ettikten sonra gerçek URL'ini buraya yaz
 // (örn. 'https://life-admin-verify-purchase.vercel.app/api/verify-purchase').
 const String _verifyPurchaseEndpoint =
-    'https://YOUR-VERCEL-PROJECT.vercel.app/api/verify-purchase';
+    'https://life-admin-server.vercel.app/api/verify-purchase';
 
 // App Store Connect'te oluşturulacak abonelik Product ID'leri.
 enum PremiumPlan { monthly, yearly }
