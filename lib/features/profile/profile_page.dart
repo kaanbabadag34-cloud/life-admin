@@ -249,10 +249,27 @@ class ProfilePageState extends State<ProfilePage> {
     );
   }
 
+  bool get _hasActiveAppleSubscription {
+    final row = _profileRow;
+    if (row == null) return false;
+
+    if (row['subscription_platform'] != 'ios') return false;
+    if (row['subscription_status'] != 'active') return false;
+
+    final expiresRaw = row['subscription_expires_at']?.toString();
+    if (expiresRaw == null) return true;
+
+    final expires = DateTime.tryParse(expiresRaw);
+    return expires == null || expires.isAfter(DateTime.now());
+  }
+
   void _openAccountSecurity() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => AccountSecurityPage(onSignOut: _signOut),
+        builder: (_) => AccountSecurityPage(
+          onSignOut: _signOut,
+          hasActiveSubscription: _hasActiveAppleSubscription,
+        ),
       ),
     );
   }
