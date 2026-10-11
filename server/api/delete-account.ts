@@ -5,6 +5,14 @@
 //
 // Kullanıcı kimliği SADECE doğrulanmış access token'dan çıkarılır; body'deki
 // hiçbir alana güvenilmez. Silme sırası (repodaki gerçek şemaya göre):
+//   0. (SADECE Apple ile giriş yapmış kullanıcılar) Apple token revoke:
+//        apple_auth_tokens.refresh_token -> appleid.apple.com/auth/revoke.
+//        Revoke başarılı OLMADAN hiçbir şey silinmez. Refresh token kaydı
+//        yoksa 409 + code "APPLE_REAUTH_REQUIRED" döner (Flutter kullanıcıyı
+//        Apple ile yeniden doğrulatıp /api/apple-auth-token ile token'ı
+//        yakalar, sonra silmeyi tekrar dener). Revoke sonrası
+//        apple_auth_tokens satırı silinir. Google/e-posta kullanıcılarında
+//        Apple'a hiç istek atılmaz.
 //   1. journal_entries   (user_id)  -- auth.users'a ON DELETE CASCADE
 //   2. countdowns        (user_id)  -- auth.users'a ON DELETE CASCADE
 //   3. events            (user_id)  -- dashboard'da oluşturulmuş; FK/cascade
@@ -18,12 +26,18 @@
 // ayarlarından kendisi yönetir. Storage: uygulama hiçbir bucket kullanmıyor
 // (lib/ altında storage çağrısı yok), bu yüzden dosya silme adımı yok.
 //
-// Gerekli env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
-// (verify-purchase ile aynı; yeni env yok). Service role key SADECE burada.
+// Gerekli env: SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY ve
+// (Apple kullanıcıları için) APPLE_TEAM_ID, APPLE_KEY_ID, APPLE_PRIVATE_KEY,
+// APPLE_CLIENT_ID. Service role key SADECE burada.
 // Token, kullanıcı id'si veya kişisel veri LOGLANMAZ.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import {
+  AppleConfigError,
+  hasAppleIdentity,
+  revokeRefreshToken,
+} from '../lib/apple-auth';
 
 // [tablo, kullanıcıyı gösteren kolon] — sıra önemli.
 const USER_TABLES: Array<[string, string]> = [
@@ -85,6 +99,97 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const admin = createClient(supabaseUrl, supabaseServiceRoleKey);
     const deletedCounts: Record<string, number | null> = {};
 
+    // Apple kimliği, istemciye değil gerçek Supabase auth kullanıcısına
+    // bakılarak belirlenir.
+    const { data: adminUserData, error: adminUserError } =
+      await admin.auth.admin.getUserById(userId);
+
+    if (adminUserError || !adminUserData?.user) {
+      console.error(
+        JSON.stringify({
+          event: 'delete-account-user-lookup-error',
+          status: adminUserError?.status,
+          at: new Date().toISOString(),
+        }),
+      );
+      res.status(500).json({ success: false, reason: 'Kullanıcı bilgisi alınamadı.' });
+      return;
+    }
+
+    if (hasAppleIdentity(adminUserData.user)) {
+      const { data: tokenRow, error: tokenError } = await admin
+        .from('apple_auth_tokens')
+        .select('refresh_token')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (tokenError) {
+        console.error(
+          JSON.stringify({
+            event: 'delete-account-apple-token-lookup-error',
+            code: tokenError.code,
+            at: new Date().toISOString(),
+          }),
+        );
+        res.status(500).json({ success: false, reason: 'Apple bilgisi okunamadı.' });
+        return;
+      }
+
+      if (!tokenRow?.refresh_token) {
+        console.warn(
+          JSON.stringify({
+            event: 'delete-account-apple-reauth-required',
+            at: new Date().toISOString(),
+          }),
+        );
+        res.status(409).json({
+          success: false,
+          code: 'APPLE_REAUTH_REQUIRED',
+          reason: 'Apple ile yeniden doğrulama gerekiyor.',
+        });
+        return;
+      }
+
+      try {
+        await revokeRefreshToken(tokenRow.refresh_token as string);
+      } catch (error) {
+        if (error instanceof AppleConfigError) throw error;
+
+        const appleError = error as { status?: number; appleError?: string };
+        console.error(
+          JSON.stringify({
+            event: 'delete-account-apple-revoke-error',
+            appleStatus: appleError.status,
+            appleError: appleError.appleError,
+            at: new Date().toISOString(),
+          }),
+        );
+        res.status(502).json({
+          success: false,
+          code: 'APPLE_REVOKE_FAILED',
+          reason: 'Apple yetkilendirmesi kaldırılamadı.',
+        });
+        return;
+      }
+
+      const { error: tokenDeleteError } = await admin
+        .from('apple_auth_tokens')
+        .delete()
+        .eq('user_id', userId);
+
+      if (tokenDeleteError) {
+        console.error(
+          JSON.stringify({
+            event: 'delete-account-apple-token-delete-error',
+            code: tokenDeleteError.code,
+            at: new Date().toISOString(),
+          }),
+        );
+        res.status(500).json({ success: false, reason: 'Hesap verileri silinemedi.' });
+        return;
+      }
+    }
+
     for (const [table, column] of USER_TABLES) {
       const { error, count } = await admin
         .from(table)
@@ -133,6 +238,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.status(200).json({ success: true });
   } catch (error) {
+    if (error instanceof AppleConfigError) {
+      console.error(
+        JSON.stringify({
+          event: 'delete-account-apple-config-error',
+          message: error.message,
+          at: new Date().toISOString(),
+        }),
+      );
+      res.status(500).json({ success: false, reason: 'Sunucu yapılandırması eksik.' });
+      return;
+    }
+
     console.error(
       'delete-account error',
       error instanceof Error ? error.message : 'unknown',

@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../auth/social_auth_service.dart';
+
 const String _deleteAccountEndpoint =
     'https://life-admin-server.vercel.app/api/delete-account';
 
@@ -44,12 +46,27 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
     }
   }
 
-  Future<bool> _requestDeletion() async {
+  // [reauth] true ise önce Apple ile yeniden doğrulanıp refresh token
+  // sunucuya yakalatılır, ardından silme tekrar denenir.
+  Future<_DeleteResult> _requestDeletion({bool reauth = false}) async {
     try {
+      if (reauth) {
+        final reauthResult =
+            await SocialAuthService.instance.reauthenticateApple();
+
+        if (reauthResult == AppleReauthResult.canceled) {
+          return _DeleteResult.reauthCanceled;
+        }
+
+        if (reauthResult == AppleReauthResult.failed) {
+          return _DeleteResult.failed;
+        }
+      }
+
       final accessToken =
           Supabase.instance.client.auth.currentSession?.accessToken;
 
-      if (accessToken == null) return false;
+      if (accessToken == null) return _DeleteResult.failed;
 
       final response = await http
           .post(
@@ -61,22 +78,31 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
           )
           .timeout(const Duration(seconds: 30));
 
-      if (response.statusCode != 200) {
-        if (kDebugMode) {
-          debugPrint('delete-account failed: ${response.statusCode} '
-              '${response.body}');
+      Map<String, dynamic> data = <String, dynamic>{};
+
+      try {
+        if (response.body.isNotEmpty) {
+          data = jsonDecode(response.body) as Map<String, dynamic>;
         }
-        return false;
+      } catch (_) {}
+
+      if (response.statusCode == 200 && data['success'] == true) {
+        return _DeleteResult.success;
       }
 
-      final data = response.body.isNotEmpty
-          ? jsonDecode(response.body) as Map<String, dynamic>
-          : <String, dynamic>{};
+      if (data['code'] == 'APPLE_REAUTH_REQUIRED') {
+        return _DeleteResult.appleReauthRequired;
+      }
 
-      return data['success'] == true;
+      if (kDebugMode) {
+        debugPrint('delete-account failed: ${response.statusCode} '
+            '${data['code'] ?? data['reason']}');
+      }
+
+      return _DeleteResult.failed;
     } catch (error) {
       if (kDebugMode) debugPrint('delete-account error: $error');
-      return false;
+      return _DeleteResult.failed;
     }
   }
 
@@ -366,8 +392,15 @@ class _DeleteIntroSheet extends StatelessWidget {
   }
 }
 
+enum _DeleteResult {
+  success,
+  failed,
+  appleReauthRequired,
+  reauthCanceled,
+}
+
 class _DeleteConfirmSheet extends StatefulWidget {
-  final Future<bool> Function() onDelete;
+  final Future<_DeleteResult> Function({bool reauth}) onDelete;
 
   const _DeleteConfirmSheet({required this.onDelete});
 
@@ -378,6 +411,7 @@ class _DeleteConfirmSheet extends StatefulWidget {
 class _DeleteConfirmSheetState extends State<_DeleteConfirmSheet> {
   bool _deleting = false;
   bool _failed = false;
+  bool _needsReauth = false;
 
   Future<void> _confirm() async {
     if (_deleting) return;
@@ -387,18 +421,30 @@ class _DeleteConfirmSheetState extends State<_DeleteConfirmSheet> {
       _failed = false;
     });
 
-    final ok = await widget.onDelete();
+    final result = await widget.onDelete(reauth: _needsReauth);
 
     if (!mounted) return;
 
-    if (ok) {
+    if (result == _DeleteResult.success) {
       Navigator.of(context).pop(true);
       return;
     }
 
     setState(() {
       _deleting = false;
-      _failed = true;
+
+      switch (result) {
+        case _DeleteResult.appleReauthRequired:
+          _needsReauth = true;
+        case _DeleteResult.reauthCanceled:
+          // Kullanıcı Apple penceresini kapattı: hata değil, sessizce
+          // yeniden doğrulama adımında kalır.
+          break;
+        case _DeleteResult.failed:
+          _failed = true;
+        case _DeleteResult.success:
+          break;
+      }
     });
   }
 
@@ -444,9 +490,13 @@ class _DeleteConfirmSheetState extends State<_DeleteConfirmSheet> {
                 height: 44,
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: _failed
+                  child: (_failed || _needsReauth)
                       ? Text(
-                          'Hesap silinemedi. Lütfen tekrar deneyin.',
+                          _needsReauth
+                              ? 'Hesabını silmeden önce Apple ile yeniden '
+                                    'doğrulaman gerekiyor.'
+                              : 'Hesap silinemedi. Lütfen tekrar deneyin.',
+                          maxLines: 2,
                           style: TextStyle(
                             color: colors.error,
                             fontSize: 13.5,
@@ -472,7 +522,11 @@ class _DeleteConfirmSheetState extends State<_DeleteConfirmSheet> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Hesabımı Sil'),
+                    : Text(
+                        _needsReauth
+                            ? 'Apple ile Doğrula ve Sil'
+                            : 'Hesabımı Sil',
+                      ),
               ),
               const SizedBox(height: 10),
               OutlinedButton(
