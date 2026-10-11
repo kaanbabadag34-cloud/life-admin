@@ -103,6 +103,7 @@ interface VerifiedPayload {
   bundleId: string;
   productId: string;
   transactionId: string;
+  originalTransactionId?: string;
   expiresDate?: number;
   revocationDate?: number;
   environment: string;
@@ -206,6 +207,7 @@ async function verifyTransaction(signedTransaction: string): Promise<{
           bundleId: decoded.bundleId as string,
           productId: decoded.productId as string,
           transactionId: decoded.transactionId as string,
+          originalTransactionId: decoded.originalTransactionId as string | undefined,
           expiresDate: decoded.expiresDate as number | undefined,
           revocationDate: decoded.revocationDate as number | undefined,
           environment: String(decoded.environment ?? attempt.label),
@@ -317,15 +319,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Flutter'a hiçbir zaman gönderilmez.
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
 
+    const profileUpdate: Record<string, unknown> = {
+      plan: isActive ? 'premium' : 'free',
+      subscription_product_id: payload.productId,
+      subscription_expires_at: expiresAt?.toISOString() ?? null,
+      subscription_platform: 'ios',
+      subscription_status: isRevoked ? 'revoked' : isActive ? 'active' : 'expired',
+    };
+
+    // originalTransactionId, yalnızca Apple doğrulaması başarılı olduktan
+    // sonra, doğrulanmış payload'dan gelir. Yoksa mevcut alan EZİLMEZ
+    // (alan update'e hiç eklenmez) ve premium akışı bozulmaz.
+    if (payload.originalTransactionId) {
+      profileUpdate.subscription_original_transaction_id = payload.originalTransactionId;
+    } else {
+      console.warn(
+        JSON.stringify({
+          event: 'verify-purchase-missing-original-transaction-id',
+          userId,
+          productId: payload.productId,
+          environment: payload.environment,
+          at: new Date().toISOString(),
+        }),
+      );
+    }
+
     const { error: updateError } = await adminClient
       .from('profiles')
-      .update({
-        plan: isActive ? 'premium' : 'free',
-        subscription_product_id: payload.productId,
-        subscription_expires_at: expiresAt?.toISOString() ?? null,
-        subscription_platform: 'ios',
-        subscription_status: isRevoked ? 'revoked' : isActive ? 'active' : 'expired',
-      })
+      .update(profileUpdate)
       .eq('id', userId);
 
     if (updateError) {
