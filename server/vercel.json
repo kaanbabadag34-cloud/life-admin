@@ -2,6 +2,9 @@
   "functions": {
     "api/verify-purchase.ts": {
       "includeFiles": "certs/**"
+    },
+    "api/apple-notifications.ts": {
+      "includeFiles": "certs/**"
     }
   }
 }
