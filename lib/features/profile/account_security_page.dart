@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../services/apple_calendar_service.dart';
 import '../../services/session_sync_service.dart';
 import '../auth/social_auth_service.dart';
 
@@ -113,6 +114,13 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
 
     // Context'e bağlı her şey await'lerden ÖNCE yakalanıyor.
     final navigator = Navigator.of(context, rootNavigator: true);
+    final deletedUserId = Supabase.instance.client.auth.currentUser?.id;
+    final calendarSyncOn = await AppleCalendarService.instance.isEnabled();
+
+    if (!mounted) {
+      _flowOpen = false;
+      return;
+    }
 
     try {
       final proceed = await showModalBottomSheet<bool>(
@@ -121,6 +129,7 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
         isScrollControlled: true,
         builder: (_) => _DeleteIntroSheet(
           hasActiveSubscription: widget.hasActiveSubscription,
+          hasCalendarSync: calendarSyncOn,
           onManageSubscription: _openManageSubscription,
         ),
       );
@@ -137,8 +146,13 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
 
       if (deleted != true) return;
 
-      // Silinen hesaba ait yerel bildirimler ve sahip kaydı temizlenir.
+      // Silinen hesaba ait yerel bildirimler ve sahip kaydı temizlenir. Apple
+      // Takvim'e eklenen etkinlikler takvimde KALIR (silinmez); yalnızca bu
+      // hesabın takvim eşleşmesi ve tercihi bu cihazdan kaldırılır.
       await SessionSyncService.instance.clearForSignOut();
+      if (deletedUserId != null) {
+        await AppleCalendarService.instance.forgetUser(deletedUserId);
+      }
 
       try {
         await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);
@@ -292,10 +306,12 @@ class _SecurityIcon extends StatelessWidget {
 
 class _DeleteIntroSheet extends StatelessWidget {
   final bool hasActiveSubscription;
+  final bool hasCalendarSync;
   final Future<void> Function() onManageSubscription;
 
   const _DeleteIntroSheet({
     required this.hasActiveSubscription,
+    required this.hasCalendarSync,
     required this.onManageSubscription,
   });
 
@@ -331,6 +347,14 @@ class _DeleteIntroSheet extends StatelessWidget {
               'Bu işlem geri alınamaz.',
               style: TextStyle(color: secondaryText, fontSize: 14.5, height: 1.4),
             ),
+            if (hasCalendarSync) ...[
+              const SizedBox(height: 12),
+              Text(
+                'Apple Takvim’e eklenen etkinlikler takviminde kalır; '
+                'Life Admin bunları silmez.',
+                style: TextStyle(color: secondaryText, fontSize: 13, height: 1.4),
+              ),
+            ],
             if (hasActiveSubscription) ...[
               const SizedBox(height: 14),
               Container(

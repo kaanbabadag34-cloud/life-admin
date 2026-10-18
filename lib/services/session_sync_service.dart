@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/plans/event_service.dart';
 import '../features/plans/plan.dart';
 import '../utils/reminder_format.dart';
+import 'apple_calendar_service.dart';
 import 'notification_service.dart';
 import 'reminder_plan.dart';
 
@@ -120,13 +121,14 @@ class SessionSyncService with WidgetsBindingObserver {
       await notifications.setOwner(user.id);
     }
 
-    if (!await notifications.isAppEnabled()) {
-      await notifications.cancelAll();
-      return;
-    }
+    final appEnabled = await notifications.isAppEnabled();
+    if (!appEnabled) await notifications.cancelAll();
 
-    // İzin penceresi AÇMAZ: sistem izni yoksa planlama yapılmaz.
-    if (!await notifications.notificationsAllowed()) return;
+    // İzin penceresi AÇMAZ: sistem izni yoksa bildirim planlaması yapılmaz.
+    final needReminders = appEnabled && await notifications.notificationsAllowed();
+    final needCalendar = await AppleCalendarService.instance.isEnabled();
+
+    if (!needReminders && !needCalendar) return;
 
     final List<Plan> plans;
 
@@ -135,6 +137,16 @@ class SessionSyncService with WidgetsBindingObserver {
     } catch (_) {
       return;
     }
+
+    // Apple Takvim: yerel eşleşme kaybolduysa Life Admin işaretli etkinlikler
+    // takvimden bu kullanıcının planlarına yeniden bağlanır.
+    if (needCalendar) {
+      await AppleCalendarService.instance.reconcileMappings(
+        {for (final plan in plans) plan.id},
+      );
+    }
+
+    if (!needReminders) return;
 
     final candidates = <ReminderCandidate>[
       for (final plan in plans)

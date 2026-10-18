@@ -106,8 +106,27 @@ final class CalendarBridge {
       upsertEvent(call.arguments, result)
     case "deleteEvent":
       deleteEvent(call.arguments, result)
+    case "listOurEvents":
+      listOurEvents(call.arguments, result)
     default:
       result(FlutterMethodNotImplemented)
+    }
+  }
+
+  private func planUrlString(_ planId: String) -> String {
+    return "\(urlScheme)://plan/\(planId)"
+  }
+
+  // Yalnızca Life Admin'ın işaretli etkinlikleri; [planId] verilirse yalnızca
+  // o göreve ait olanlar. Kullanıcının kendi etkinlikleri ASLA dönmez.
+  private func findOurEvents(planId: String?, from: Date, to: Date) -> [EKEvent] {
+    let predicate = store.predicateForEvents(withStart: from, end: to, calendars: nil)
+    let wanted = planId.map { planUrlString($0) }
+
+    return store.events(matching: predicate).filter { event in
+      guard isOurs(event), let url = event.url?.absoluteString else { return false }
+      if let wanted = wanted { return url == wanted }
+      return true
     }
   }
 
@@ -169,6 +188,19 @@ final class CalendarBridge {
       event = existing
     }
 
+    // Yerel eşleşme kaybolduysa (uygulama yeniden yüklendi vb.) bu göreve ait,
+    // Life Admin işaretli etkinlik takvimde aranır ve YENİDEN KULLANILIR; böylece
+    // aynı görev takvime ikinci kez eklenmez.
+    if event == nil {
+      let start = Date(timeIntervalSince1970: TimeInterval(startMillis) / 1000.0)
+      let day: TimeInterval = 86400
+      event = findOurEvents(
+        planId: planId,
+        from: start.addingTimeInterval(-366 * day),
+        to: start.addingTimeInterval(366 * day)
+      ).first
+    }
+
     let target: EKEvent
     if let existing = event {
       target = existing
@@ -196,7 +228,58 @@ final class CalendarBridge {
     }
   }
 
+  // Silme: önce eşleşen etkinlik kimliğiyle; kimlik yoksa/geçersizse göreve ait
+  // Life Admin işaretli etkinlikler planId ile aranır. Her durumda YALNIZCA
+  // Life Admin işaretli etkinlikler silinir.
   private func deleteEvent(_ arguments: Any?, _ result: @escaping FlutterResult) {
+    guard hasAccess() else {
+      result(FlutterError(code: "no_access", message: "Takvim erişimi yok.", details: nil))
+      return
+    }
+
+    guard let args = arguments as? [String: Any] else {
+      result(FlutterError(code: "bad_args", message: "Geçersiz argümanlar.", details: nil))
+      return
+    }
+
+    let eventId = args["eventId"] as? String
+    let planId = args["planId"] as? String
+
+    var targets: [EKEvent] = []
+
+    if let eventId = eventId,
+       let event = store.event(withIdentifier: eventId),
+       isOurs(event) {
+      targets = [event]
+    } else if let planId = planId {
+      let now = Date()
+      let year: TimeInterval = 365 * 86400
+      targets = findOurEvents(
+        planId: planId,
+        from: now.addingTimeInterval(-2 * year),
+        to: now.addingTimeInterval(2 * year)
+      )
+    }
+
+    guard !targets.isEmpty else {
+      result(false)
+      return
+    }
+
+    do {
+      for event in targets {
+        try store.remove(event, span: .thisEvent, commit: true)
+      }
+      result(true)
+    } catch {
+      result(FlutterError(code: "delete_failed", message: "Etkinlik silinemedi.", details: nil))
+    }
+  }
+
+  // Life Admin işaretli etkinlikleri (planId -> eventId) listeler; yerel
+  // eşleşmeyi yeniden kurmak için kullanılır. Kullanıcının kendi etkinliklerine
+  // dokunmaz/döndürmez.
+  private func listOurEvents(_ arguments: Any?, _ result: @escaping FlutterResult) {
     guard hasAccess() else {
       result(FlutterError(code: "no_access", message: "Takvim erişimi yok.", details: nil))
       return
@@ -204,23 +287,28 @@ final class CalendarBridge {
 
     guard
       let args = arguments as? [String: Any],
-      let eventId = args["eventId"] as? String
+      let startMillis = args["startMillis"] as? Int,
+      let endMillis = args["endMillis"] as? Int
     else {
       result(FlutterError(code: "bad_args", message: "Geçersiz argümanlar.", details: nil))
       return
     }
 
-    guard let event = store.event(withIdentifier: eventId), isOurs(event) else {
-      result(false)
-      return
-    }
+    let from = Date(timeIntervalSince1970: TimeInterval(startMillis) / 1000.0)
+    let to = Date(timeIntervalSince1970: TimeInterval(endMillis) / 1000.0)
+    let prefix = "\(urlScheme)://plan/"
 
-    do {
-      try store.remove(event, span: .thisEvent, commit: true)
-      result(true)
-    } catch {
-      result(FlutterError(code: "delete_failed", message: "Etkinlik silinemedi.", details: nil))
-    }
+    let entries: [[String: String]] = findOurEvents(planId: nil, from: from, to: to)
+      .compactMap { event in
+        guard
+          let url = event.url?.absoluteString,
+          url.hasPrefix(prefix),
+          let eventId = event.eventIdentifier
+        else { return nil }
+        return ["planId": String(url.dropFirst(prefix.count)), "eventId": eventId]
+      }
+
+    result(entries)
   }
 }
 
