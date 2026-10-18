@@ -1,10 +1,12 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../utils/reminder_format.dart';
+import 'reminder_plan.dart';
 
 class NotificationService {
   NotificationService._();
@@ -53,18 +55,41 @@ class NotificationService {
   // Plan başına SABİT bildirim kimliği: aynı plan için tekrar planlama aynı
   // kimliğin üzerine yazar (çift bildirim oluşmaz). Plan başlığı/tarihi
   // değişse bile kimlik değişmez.
-  static int reminderIdFor(String planId) {
-    var hash = 2166136261;
-
-    for (final codeUnit in 'plan-reminder|$planId'.codeUnits) {
-      hash ^= codeUnit;
-      hash = (hash * 16777619) & 0x7fffffff;
-    }
-
-    return hash;
-  }
+  static int reminderIdFor(String planId) => reminderNotificationId(planId);
 
   static const String _appEnabledKey = 'notifications_enabled_by_app';
+  static const String _ownerKey = 'notifications_owner_user_id';
+
+  // Bekleyen bildirimlerin hangi kullanıcıya ait olduğu (cihazda). Hesap
+  // değişirse eski kullanıcının bildirimleri temizlenir.
+  Future<String?> getOwner() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getString(_ownerKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setOwner(String? userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (userId == null) {
+        await prefs.remove(_ownerKey);
+      } else {
+        await prefs.setString(_ownerKey, userId);
+      }
+    } catch (_) {}
+  }
+
+  Future<List<PendingReminder>> pendingReminders() async {
+    try {
+      final pending = await _notifications.pendingNotificationRequests();
+      return [for (final p in pending) PendingReminder(p.id, p.payload)];
+    } catch (_) {
+      return [];
+    }
+  }
 
   // Uygulama içi tercih (iOS sistem iznini DEĞİŞTİRMEZ): kapalıyken Life Admin
   // hiçbir yerel bildirim planlamaz. Varsayılan açık.
@@ -142,12 +167,15 @@ class NotificationService {
   }
 
   // Bildirim planlandıysa true. Geçmiş zamana asla planlanmaz; izin yoksa
-  // planlanmaz (false).
+  // planlanmaz (false). [planId] verilirse bildirimin payload'ına sahibi
+  // (kullanıcı) ve plan kimliği yazılır; böylece hesap değişiminde başkasının
+  // bildirimi ayırt edilip temizlenebilir.
   Future<bool> schedulePlanReminder({
     required int id,
     required String title,
     required DateTime planDateTime,
     required int minutesBefore,
+    String? planId,
   }) async {
     // Kullanıcı Bildirimler'i uygulama içinden kapattıysa planlama yapılmaz.
     if (!await isAppEnabled()) return false;
@@ -164,24 +192,49 @@ class NotificationService {
     // istenir (açılışta değil).
     if (!await ensurePermission()) return false;
 
-    final scheduledDate =
-        tz.TZDateTime.from(
-      reminderTime,
-      tz.local,
+    final ownerId = Supabase.instance.client.auth.currentUser?.id;
+
+    await scheduleAt(
+      id: id,
+      title: title,
+      minutesBefore: minutesBefore,
+      fireAt: reminderTime,
+      payload: (ownerId != null && planId != null)
+          ? encodeReminderPayload(
+              ReminderPayload(
+                ownerId: ownerId,
+                planId: planId,
+                fireAtMs: reminderTime.millisecondsSinceEpoch,
+                minutesBefore: minutesBefore,
+                scheduledAtMs: DateTime.now().millisecondsSinceEpoch,
+                title: title,
+              ),
+            )
+          : null,
     );
 
+    return true;
+  }
+
+  // İzin/tercih kontrolü YAPMAZ (çağıran yapmış olmalı); doğrudan planlar.
+  Future<void> scheduleAt({
+    required int id,
+    required String title,
+    required int minutesBefore,
+    required DateTime fireAt,
+    String? payload,
+  }) async {
     await _notifications.zonedSchedule(
       id: id,
       title: minutesBefore <= 0 ? title : '$title yaklaşıyor',
       body: null,
-      scheduledDate: scheduledDate,
-      notificationDetails:
-          const NotificationDetails(
+      payload: payload,
+      scheduledDate: tz.TZDateTime.from(fireAt, tz.local),
+      notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
           'plan_reminders',
           'Plan Hatırlatıcıları',
-          channelDescription:
-              'Planlardan önce gönderilen hatırlatıcılar',
+          channelDescription: 'Planlardan önce gönderilen hatırlatıcılar',
           importance: Importance.high,
           priority: Priority.high,
         ),
@@ -191,11 +244,8 @@ class NotificationService {
           presentSound: true,
         ),
       ),
-      androidScheduleMode:
-          AndroidScheduleMode.inexactAllowWhileIdle,
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
     );
-
-    return true;
   }
 
   Future<void> cancelReminder(

@@ -9,7 +9,7 @@ import '../../utils/error_messages.dart';
 import '../../utils/user_name.dart';
 import '../../services/apple_calendar_service.dart';
 import '../../services/notification_service.dart';
-import '../plans/event_service.dart';
+import '../../services/session_sync_service.dart';
 import 'account_security_page.dart';
 import 'premium_page.dart';
 import 'purchase_service.dart';
@@ -192,7 +192,7 @@ class ProfilePageState extends State<ProfilePage>
 
     // Ayarlardan izin verilip dönüldüyse gelecekteki hatırlatmaları yeniden kur.
     if (rescheduleIfNewlyOn && newlyOn) {
-      await EventService().rescheduleAllReminders();
+      await SessionSyncService.instance.reconcile(force: true);
     }
   }
 
@@ -247,7 +247,7 @@ class ProfilePageState extends State<ProfilePage>
       final allowed = await service.ensurePermission();
 
       if (allowed) {
-        await EventService().rescheduleAllReminders();
+        await SessionSyncService.instance.reconcile(force: true);
       } else if (mounted) {
         await _showNotificationsDeniedDialog();
       }
@@ -322,6 +322,8 @@ class ProfilePageState extends State<ProfilePage>
     final navigator = Navigator.of(context);
     navigator.popUntil((route) => route.isFirst);
 
+    // Bu hesaba ait planlı yerel bildirimler çıkıştan ÖNCE temizlenir.
+    await SessionSyncService.instance.clearForSignOut();
     await _supabase.auth.signOut();
   }
 

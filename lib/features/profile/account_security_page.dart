@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../services/session_sync_service.dart';
 import '../auth/social_auth_service.dart';
 
 const String _deleteAccountEndpoint =
@@ -135,6 +136,9 @@ class _AccountSecurityPageState extends State<AccountSecurityPage> {
       );
 
       if (deleted != true) return;
+
+      // Silinen hesaba ait yerel bildirimler ve sahip kaydı temizlenir.
+      await SessionSyncService.instance.clearForSignOut();
 
       try {
         await Supabase.instance.client.auth.signOut(scope: SignOutScope.local);

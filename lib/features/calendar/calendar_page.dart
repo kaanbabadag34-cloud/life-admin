@@ -591,6 +591,7 @@ class CalendarPageState extends State<CalendarPage>
       title: plan.title,
       planDateTime: plan.dateTime!,
       minutesBefore: plan.reminderMinutesBefore!,
+      planId: plan.id,
     );
 
     if (!scheduled &&

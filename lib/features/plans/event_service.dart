@@ -104,6 +104,7 @@ class EventService {
           title: plan.title,
           planDateTime: dateTime,
           minutesBefore: minutes,
+          planId: id,
         );
       }
     } catch (_) {}
@@ -157,6 +158,7 @@ class EventService {
         title: row['title'] as String,
         planDateTime: startsAt,
         minutesBefore: minutes,
+        planId: id,
       );
     } catch (_) {
       // Bildirim sorunları görev kaydetme akışını asla bozmamalı.
@@ -331,37 +333,6 @@ class EventService {
         .eq('id', id)
         .eq('user_id', user.id);
     await _syncReminderFromDb(id);
-  }
-
-  // Bildirimler yeniden açıldığında: gelecekteki, geçerli tüm hatırlatmaları
-  // sabit kimliklerle (çift bildirim oluşmaz) yeniden planlar. Geçmiş
-  // hatırlatmalar planlanmaz (schedulePlanReminder bunu zaten engeller).
-  Future<void> rescheduleAllReminders() async {
-    try {
-      final plans = await getPlans();
-
-      for (final plan in plans) {
-        final minutes = plan.reminderMinutesBefore;
-        final dateTime = plan.dateTime;
-
-        if (!plan.reminderEnabled ||
-            plan.isCompleted ||
-            minutes == null ||
-            dateTime == null ||
-            !hasExplicitTime(dateTime)) {
-          continue;
-        }
-
-        await NotificationService.instance.schedulePlanReminder(
-          id: NotificationService.reminderIdFor(plan.id),
-          title: plan.title,
-          planDateTime: dateTime,
-          minutesBefore: minutes,
-        );
-      }
-    } catch (_) {
-      // Sessizce geç: bildirim yenileme ana akışı bozmamalı.
-    }
   }
 
   Future<List<Plan>> getPlans() async {

@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/app.dart';
 import 'features/profile/purchase_service.dart';
 import 'services/notification_service.dart';
+import 'services/session_sync_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +30,10 @@ Future<void> main() async {
 
   // Bildirim sistemi
   await NotificationService.instance.initialize();
+
+  // Oturum/bildirim uzlaştırması: çıkışta yerel bildirimleri temizler; giriş,
+  // yeniden açılış ve öne gelişte Supabase'deki hatırlatmaları yeniden kurar.
+  SessionSyncService.instance.start();
 
   // Satın alma (in_app_purchase) transaction listener'ı — Apple'ın kendi
   // önerdiği gibi mümkün olduğunca erken bağlanıyor: uygulama kapalıyken
