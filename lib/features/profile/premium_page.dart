@@ -26,6 +26,9 @@ class _PremiumPageState extends State<PremiumPage> {
     super.initState();
     PurchaseService.instance.initialize();
     PurchaseService.instance.addListener(_onPurchaseServiceChanged);
+    // Başlangıçtaki ürün sorgusu başarısız olduysa ekran her açıldığında
+    // yeniden denenir (ürünler zaten yüklüyse hiçbir şey yapmaz).
+    PurchaseService.instance.ensureProductsLoaded();
   }
 
   @override

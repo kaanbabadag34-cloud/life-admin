@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:in_app_purchase_storekit/store_kit_wrappers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // verify-purchase artık bir Supabase Edge Function değil, ayrı bir Vercel
@@ -78,35 +79,123 @@ class PurchaseService extends ChangeNotifier {
     await loadProducts();
   }
 
-  Future<void> loadProducts() async {
+  // Ürün sorgusu o an sürüyorsa AYNI isteği paylaşır (başlangıçtaki otomatik
+  // yükleme + Premium ekranının "Tekrar Dene"si çakışıp birbirinin
+  // loading/hata durumunu ezmesin).
+  Future<void>? _loadInFlight;
+
+  Future<void> loadProducts() {
+    return _loadInFlight ??= _loadProductsWithRetry().whenComplete(() {
+      _loadInFlight = null;
+    });
+  }
+
+  // Premium ekranı açıldığında çağrılır: başlangıçta yapılan tek seferlik
+  // sorgu geçici bir sebeple (ağ/StoreKit henüz hazır değil, App Review
+  // ortamı vb.) başarısız olduysa, kullanıcı ekranı her açtığında ürünler
+  // sessizce yeniden denenir. Zaten yüklüyse hiçbir şey yapmaz.
+  Future<void> ensureProductsLoaded() async {
+    if (_loadInFlight != null) return;
+    if (_products.containsKey(monthlyProductId) &&
+        _products.containsKey(yearlyProductId)) {
+      return;
+    }
+
+    await loadProducts();
+  }
+
+  static const int _maxProductQueryAttempts = 3;
+  static const List<Duration> _retryDelays = [
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+  ];
+
+  // Teşhis logları: ürün ID'leri, mağaza bölgesi (App Review genelde US
+  // storefront kullanır), bulunan/bulunamayan ID'ler ve StoreKit hatası.
+  // Makbuz, token veya kişisel veri İÇERMEZ.
+  void _iapLog(String message) {
+    debugPrint('[IAP] $message');
+  }
+
+  Future<String> _storefrontCountry() async {
+    try {
+      if (defaultTargetPlatform != TargetPlatform.iOS) return 'n/a';
+
+      final storefront = await SKPaymentQueueWrapper().storefront();
+      return storefront?.countryCode ?? 'unknown';
+    } catch (_) {
+      return 'unavailable';
+    }
+  }
+
+  Future<void> _loadProductsWithRetry() async {
     loadingProducts = true;
     productsError = null;
     notifyListeners();
 
-    try {
-      storeAvailable = await _inAppPurchase.isAvailable();
+    String failure = 'Abonelik ürünleri şu anda yüklenemedi. Lütfen tekrar dene.';
 
-      if (!storeAvailable) {
-        productsError = 'Mağazaya şu anda ulaşılamıyor.';
-        return;
+    try {
+      for (var attempt = 1; attempt <= _maxProductQueryAttempts; attempt++) {
+        final result = await _queryProductsOnce(attempt);
+
+        if (result == null) break;
+
+        failure = result;
+
+        if (attempt < _maxProductQueryAttempts) {
+          await Future<void>.delayed(_retryDelays[attempt - 1]);
+        }
       }
 
-      final response = await _inAppPurchase.queryProductDetails(
-        {monthlyProductId, yearlyProductId},
-      );
+      if (_products.isEmpty) {
+        productsError = failure;
+      }
+    } finally {
+      loadingProducts = false;
+      notifyListeners();
+    }
+  }
+
+  // Başarılıysa (iki ürün de bulundu) null, aksi halde kullanıcıya
+  // gösterilebilecek hata metnini döndürür.
+  Future<String?> _queryProductsOnce(int attempt) async {
+    final ids = {monthlyProductId, yearlyProductId};
+    final tag = 'attempt $attempt/$_maxProductQueryAttempts';
+
+    try {
+      storeAvailable = await _inAppPurchase.isAvailable();
+      final country = await _storefrontCountry();
+
+      _iapLog('$tag storeAvailable=$storeAvailable storefront=$country '
+          'platform=$defaultTargetPlatform requested=${ids.toList()}');
+
+      if (!storeAvailable) {
+        return 'Mağazaya şu anda ulaşılamıyor.';
+      }
+
+      final response = await _inAppPurchase.queryProductDetails(ids);
+
+      final error = response.error;
+
+      _iapLog('$tag found=${response.productDetails.map((p) => p.id).toList()} '
+          'notFound=${response.notFoundIDs} '
+          'error=${error == null ? 'none' : '${error.source}/${error.code}: '
+              '${error.message} (${error.details})'}');
 
       for (final product in response.productDetails) {
         _products[product.id] = product;
       }
 
-      if (_products.isEmpty) {
-        productsError = 'Abonelik ürünleri bulunamadı.';
+      if (_products.keys.toSet().containsAll(ids)) {
+        productsError = null;
+        return null;
       }
-    } catch (_) {
-      productsError = 'Ürünler yüklenemedi. Tekrar deneyin.';
-    } finally {
-      loadingProducts = false;
-      notifyListeners();
+
+      return 'Abonelik ürünleri şu anda yüklenemedi. Lütfen tekrar dene.';
+    } catch (error) {
+      _iapLog('$tag query threw: $error');
+      return 'Ürünler yüklenemedi. Tekrar deneyin.';
     }
   }
 
