@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
@@ -6,9 +7,17 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../utils/confirm_dialog.dart';
+import '../../services/notification_service.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/perf_trace.dart';
+import '../../utils/reminder_format.dart';
+import '../../utils/user_name.dart';
 import '../plans/event_service.dart';
 import '../plans/plan.dart';
+import '../plans/plan_text_parser.dart';
+import '../plans/reminder_parser.dart';
+import '../../widgets/reminder_section.dart';
+import '../../widgets/voice_mic_button.dart';
 import '../profile/premium_page.dart';
 
 enum _HabitType { tap, quantity, duration, count }
@@ -377,6 +386,8 @@ class _HomePageState extends State<HomePage>
   // vermek için — sadece bu küçük AnimatedBuilder alt ağacı tick başına
   // yeniden çiziliyor, tüm sayfa değil.
   late final AnimationController _glowController;
+  StreamSubscription<AuthState>? _authSubscription;
+  bool _voiceBusy = false;
 
   List<Plan> _plans = [];
   bool _loading = true;
@@ -438,6 +449,13 @@ class _HomePageState extends State<HomePage>
     )..repeat(reverse: true);
     _loadPlans();
     _loadAiUsage();
+    // Ad profil ekranından sonradan eklenirse selamlama/avatar yenilensin.
+    _authSubscription =
+        Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.userUpdated && mounted) {
+        setState(() {});
+      }
+    }, onError: (_) {});
   }
 
   Future<void> _loadPlans() async {
@@ -498,25 +516,32 @@ class _HomePageState extends State<HomePage>
     }
   }
 
-  Future<void> _addPlan() async {
-    final text = _controller.text.trim();
+  // [voiceText] verilirse (sesli komut) metin yazı kutusuna ASLA yazılmaz,
+  // kutudaki mevcut içerik korunur ve işlem sonunda temizlenmez.
+  Future<void> _addPlan({String? voiceText}) async {
+    final isVoice = voiceText != null;
+    final text = (voiceText ?? _controller.text).trim();
 
     if (text.isEmpty || _saving) return;
 
     // Gönderim tetiklenir tetiklenmez klavye kapanır ve odak input'tan
     // ayrılır — AI isteği/loading akışı klavye kapalıyken devam eder.
-    FocusScope.of(context).unfocus();
+    // (Sesli komutta kullanıcının yazma odağına dokunulmaz.)
+    if (!isVoice) FocusScope.of(context).unfocus();
 
     setState(() {
       _saving = true;
       _errorMessage = null;
     });
 
+    final perf = PerfTrace('ai-add');
+
     try {
       final response = await Supabase.instance.client.functions.invoke(
         'parse-plan',
         body: {'text': text},
       );
+      perf.mark('parse-plan');
 
       if (response.data == null) {
         throw Exception('AI servisi boş cevap verdi.');
@@ -540,10 +565,12 @@ class _HomePageState extends State<HomePage>
 
       final planData = Map<String, dynamic>.from(rawPlan);
 
-      final String title =
-          planData['title']?.toString().trim().isNotEmpty == true
-              ? planData['title'].toString().trim()
-              : text;
+      // Başlık: AI başlığı; içinde "20 dk önce hatırlat" gibi komut / saat
+      // ifadesi varsa veya tüm mesaj kopyalandıysa mesajdan türetilir.
+      var title = cleanPlanTitle(
+        planData['title']?.toString() ?? '',
+        text,
+      );
 
       final String eventType =
           planData['event_type']?.toString() ?? 'task';
@@ -559,6 +586,118 @@ class _HomePageState extends State<HomePage>
         ).toLocal();
       }
 
+      // Saat ifadesi metinde açıkça varsa (13:40, 1.40'da, 9'da...) güvenilir
+      // olan bu ayrıştırma AI'nın saatinin yerine geçer; tarih AI'dan gelir.
+      // 1-6 arası ve gün bölümü belirtilmemiş saatlerde (01:40 mı 13:40 mı?)
+      // tahmin yürütülmez: bugün yalnızca biri gelecekteyse o seçilir,
+      // aksi halde kullanıcıya sorulur.
+      final reminderIntent = parseReminderIntent(text);
+
+      if (reminderIntent.kind == ReminderIntentKind.afterDelay &&
+          title == 'Plan') {
+        title = 'Hatırlatma';
+      }
+
+      // "yarım saat sonra beni uyar": görev zamanı şimdiden itibaren hesaplanır.
+      final isDelay = reminderIntent.kind == ReminderIntentKind.afterDelay;
+
+      if (isDelay) {
+        final target = DateTime.now().add(
+          Duration(minutes: reminderIntent.minutesBefore!),
+        );
+        startsAt = DateTime(
+          target.year,
+          target.month,
+          target.day,
+          target.hour,
+          target.minute == 0 && target.hour == 0 ? 1 : target.minute,
+        );
+      }
+
+      // "14.00'te başlayıp 16.30'da bitecek": başlangıç saati aralığın başıdır.
+      final clockRange = isDelay ? null : findClockRange(text);
+      final clock = isDelay ? null : (clockRange?.start ?? findClock(text));
+
+      if (startsAt != null && clock != null) {
+        DateTime at(int hour) => DateTime(
+          startsAt!.year,
+          startsAt.month,
+          startsAt.day,
+          hour,
+          clock.minute,
+        );
+
+        int? chosenHour = clock.ambiguous ? null : clock.hour;
+
+        if (clock.ambiguous) {
+          final now = DateTime.now();
+          final future = clock.candidateHours
+              .where((hour) => at(hour).isAfter(now))
+              .toList();
+
+          if (future.length == 1) {
+            chosenHour = future.first;
+          } else {
+            chosenHour = await _askAmPm(clock);
+          }
+        }
+
+        if (chosenHour == null) {
+          if (mounted) setState(() => _saving = false);
+          return;
+        }
+
+        startsAt = at(chosenHour);
+      }
+
+      // Hatırlatma isteği: görev saati AI'dan, "ne kadar önce" bilgisi
+      // kullanıcının metninden ayıklanır. Belirsizse saat UYDURULMAZ.
+      final taskHasTime = startsAt != null && hasExplicitTime(startsAt);
+      var reminderEnabled = false;
+      int? reminderMinutes;
+      String? reminderNotice;
+
+      switch (reminderIntent.kind) {
+        case ReminderIntentKind.none:
+          break;
+        case ReminderIntentKind.afterDelay:
+          if (reminderTimeFor(startsAt!, 0).isAfter(DateTime.now())) {
+            reminderEnabled = true;
+            reminderMinutes = 0;
+          }
+        case ReminderIntentKind.ambiguous:
+          reminderNotice =
+              'Hatırlatma zamanı belirsiz olduğu için hatırlatma eklenmedi. '
+              'Görev detayından ayarlayabilirsin.';
+        case ReminderIntentKind.offset:
+        case ReminderIntentKind.atTaskTime:
+          final minutes = reminderIntent.minutesBefore ?? 0;
+
+          if (!taskHasTime) {
+            reminderNotice =
+                'Hatırlatma için görev saati gerekli, hatırlatma eklenmedi.';
+          } else if (!reminderTimeFor(startsAt, minutes)
+              .isAfter(DateTime.now())) {
+            reminderNotice =
+                'Hatırlatma zamanı geçmişte kaldığı için eklenmedi.';
+          } else {
+            reminderEnabled = true;
+            reminderMinutes = minutes;
+          }
+      }
+
+      // Etkinlik SÜRESİ: başlangıç/bitiş aralığından ya da "2 saat sürecek"
+      // gibi ifadeden. Başlangıç saati, bitiş saati ve hatırlatma ofseti
+      // ayrı kavramlardır; süre başlığa karışmaz. Yoksa null (varsayılan 60 dk).
+      int? durationMinutes;
+
+      if (startsAt != null && hasExplicitTime(startsAt)) {
+        if (clockRange != null) {
+          durationMinutes = minutesBetween(startsAt, clockRange.end);
+        }
+        durationMinutes ??= parseDurationMinutes(text);
+      }
+
       final parsedPlan = Plan(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         title: title,
@@ -569,20 +708,38 @@ class _HomePageState extends State<HomePage>
         ),
         source: PlanSource.ai,
         isCompleted: false,
-        reminderEnabled: false,
+        reminderEnabled: reminderEnabled,
+        reminderMinutesBefore: reminderMinutes,
+        durationMinutes: durationMinutes,
         createdAt: DateTime.now(),
       );
 
-      await _eventService.addPlan(parsedPlan);
+      perf.mark('parse');
 
-      if (widget.onAiUsageChanged != null) {
-        await widget.onAiUsageChanged!();
+      await _eventService.addPlan(parsedPlan);
+      perf.mark('insert');
+
+      // Yazılı komutta kutu temizlenir; sesli komutta kutudaki mevcut metin
+      // aynen kalır.
+      if (!isVoice) _controller.clear();
+
+      // Kullanım sayacı yenilemeleri görevin görünmesini BEKLETMEZ (arka
+      // planda sürer); kullanıcının gördüğü sonuç olan görev listesi ise
+      // beklenir.
+      unawaited(_refreshUsageInBackground());
+      await _loadPlans();
+      perf.mark('reload');
+
+      if (reminderEnabled) {
+        reminderNotice = await NotificationService.instance
+                .notificationsAllowed()
+            ? 'Hatırlatma ayarlandı • ${reminderOffsetLabel(reminderMinutes!)}.'
+            : 'Bildirim izni kapalı. Hatırlatma için iPhone Ayarlar → '
+                  'Bildirimler → Life Admin bölümünden izin ver.';
       }
 
-      await _loadAiUsage();
-
-      _controller.clear();
-      await _loadPlans();
+      if (reminderNotice != null) _showSnack(reminderNotice);
+      perf.finish();
     } catch (error) {
       if (!mounted) return;
 
@@ -599,6 +756,41 @@ class _HomePageState extends State<HomePage>
         });
       }
     }
+  }
+
+  Future<void> _refreshUsageInBackground() async {
+    try {
+      await Future.wait([
+        if (widget.onAiUsageChanged != null) widget.onAiUsageChanged!(),
+        _loadAiUsage(),
+      ]);
+    } catch (_) {}
+  }
+
+  Future<int?> _askAmPm(ClockMention clock) {
+    String label(int hour) =>
+        '${hour.toString().padLeft(2, '0')}:${clock.minute.toString().padLeft(2, '0')}';
+
+    return showDialog<int>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Saat kaçı kastediyorsun?'),
+          content: const Text('Gün bölümü belirtilmediği için saat net değil.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Vazgeç'),
+            ),
+            for (final hour in clock.candidateHours.reversed)
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(hour),
+                child: Text(label(hour)),
+              ),
+          ],
+        );
+      },
+    );
   }
 
   // Yanlışlıkla veri kaybını önlemek için kritik silme işlemlerinden önce
@@ -1081,6 +1273,9 @@ class _HomePageState extends State<HomePage>
     final metadata = user.userMetadata;
     final profile = _profile;
 
+    final resolved = resolveFullName(user, profile);
+    if (resolved != null) return firstNameOf(resolved);
+
     // Önce "profiles" tablosundaki (varsa) gerçek profil adı, sonra auth
     // metadata — hangi Supabase auth sağlayıcısına göre isim farklı
     // anahtarlarda gelebilir (ör. Google/Apple ile girişte "given_name"
@@ -1134,7 +1329,7 @@ class _HomePageState extends State<HomePage>
     // "ilk isim" olmayabilir (ör. "kaanbabadag" ayrılamaz) ama kullanıcının
     // gerçek hesap verisinden geliyor, hardcode değil.
     final email = user.email;
-    if (email != null && email.contains('@')) {
+    if (email != null && email.contains('@') && !isRelayEmail(email)) {
       final localPart = email.split('@').first;
       final namePart = localPart
           .split(RegExp(r'[._+0-9-]+'))
@@ -1177,10 +1372,17 @@ class _HomePageState extends State<HomePage>
     return '${now.day} ${months[now.month - 1]} ${weekdays[now.weekday - 1]}';
   }
 
-  String _avatarInitials() {
-    final email = Supabase.instance.client.auth.currentUser?.email;
-    if (email == null || email.isEmpty) return '?';
-    return email.substring(0, email.length >= 2 ? 2 : 1).toUpperCase();
+  // Gerçek ad-soyad baş harfleri; ad bulunamazsa null (avatar'da sade kişi
+  // ikonu gösterilir — "?" veya anlamsız e-posta harfleri değil).
+  String? _avatarInitials() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return null;
+
+    final fullName = resolveFullName(user, _profile);
+    if (fullName == null) return null;
+
+    final initials = initialsOf(fullName);
+    return initials.isEmpty ? null : initials;
   }
 
   String _formatTime(DateTime date) {
@@ -1289,6 +1491,7 @@ class _HomePageState extends State<HomePage>
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _controller.dispose();
     _glowController.dispose();
     super.dispose();
@@ -1356,14 +1559,20 @@ class _HomePageState extends State<HomePage>
                       ),
                     ),
                     alignment: Alignment.center,
-                    child: Text(
-                      _avatarInitials(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    child: _avatarInitials() == null
+                        ? const Icon(
+                            Icons.person_rounded,
+                            size: 20,
+                            color: Colors.white,
+                          )
+                        : Text(
+                            _avatarInitials()!,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ],
               ),
@@ -1444,7 +1653,7 @@ class _HomePageState extends State<HomePage>
                             textInputAction: TextInputAction.done,
                             onSubmitted: (_) => _addPlan(),
                             decoration: InputDecoration(
-                              hintText: 'Bugün ne planlıyoruz?',
+                              hintText: 'Ne planlıyoruz?',
                               hintStyle: TextStyle(
                                 color: Colors.white.withValues(alpha: 0.46),
                               ),
@@ -1457,6 +1666,23 @@ class _HomePageState extends State<HomePage>
                           ),
                         ),
                         const SizedBox(width: 10),
+                        VoiceMicButton(
+                          enabled: !_saving && !_voiceBusy,
+                          // Parmak kalkınca overlay hemen kapanır; metin
+                          // gelene kadar TEK bir yükleniyor göstergesi
+                          // (gönder butonundaki spinner) görünür.
+                          onBusyChanged: (busy) {
+                            if (mounted) setState(() => _voiceBusy = busy);
+                          },
+                          // Konuşma metni mevcut AI görev akışına aynen
+                          // verilir (_addPlan kota/Premium kontrolleriyle).
+                          // Metin yazı kutusuna YAZILMAZ; doğrudan AI akışına gider.
+                          onTranscript: (text) {
+                            if (_saving) return;
+                            _addPlan(voiceText: text);
+                          },
+                        ),
+                        const SizedBox(width: 8),
                         GestureDetector(
                           onTap: _saving ? null : _addPlan,
                           child: Container(
@@ -1475,7 +1701,7 @@ class _HomePageState extends State<HomePage>
                               ),
                             ),
                             alignment: Alignment.center,
-                            child: _saving
+                            child: (_saving || _voiceBusy)
                                 ? const SizedBox(
                                     width: 18,
                                     height: 18,
@@ -2622,6 +2848,8 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
   late TimeOfDay _selectedTime;
   late final TextEditingController _titleController;
   late final TextEditingController _noteController;
+  late bool _reminderEnabled;
+  late int _reminderMinutes;
   bool _saving = false;
   String? _error;
 
@@ -2631,6 +2859,10 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
 
     final plan = widget.plan;
     final now = DateTime.now();
+
+    _reminderEnabled =
+        plan.reminderEnabled && plan.reminderMinutesBefore != null;
+    _reminderMinutes = plan.reminderMinutesBefore ?? 15;
 
     _selectedDate = DateTime(
       plan.dateTime?.year ?? now.year,
@@ -2651,6 +2883,68 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
     _titleController.dispose();
     _noteController.dispose();
     super.dispose();
+  }
+
+  Future<void> _onReminderSelect(int? minutes) async {
+    if (_saving) return;
+
+    if (minutes == null) {
+      setState(() {
+        _reminderEnabled = false;
+        _error = null;
+      });
+      return;
+    }
+
+    // İzin yoksa hatırlatma açılmaz ve nedeni açıklanır.
+    final allowed = await NotificationService.instance.ensurePermission();
+
+    if (!mounted) return;
+
+    if (!allowed) {
+      setState(() {
+        _reminderEnabled = false;
+        _error = 'Bildirim izni kapalı. Hatırlatma için iPhone Ayarlar → '
+            'Bildirimler → Life Admin bölümünden izin ver.';
+      });
+      return;
+    }
+
+    setState(() {
+      _reminderEnabled = true;
+      _reminderMinutes = minutes;
+      _error = null;
+    });
+  }
+
+  DateTime get _selectedDateTime => DateTime(
+    _selectedDate.year,
+    _selectedDate.month,
+    _selectedDate.day,
+    _selectedTime.hour,
+    _selectedTime.minute,
+  );
+
+  // "Bildirim: 16:00" (görev saatinden FARKLI bir gün/saatse tarihle birlikte).
+  String? _reminderSummary() {
+    if (!_reminderEnabled) return null;
+
+    final task = _selectedDateTime;
+    final when = reminderTimeFor(task, _reminderMinutes);
+
+    if (!when.isAfter(DateTime.now())) {
+      return 'Bildirim zamanı geçmişte kaldığı için planlanmayacak.';
+    }
+
+    final time =
+        '${when.hour.toString().padLeft(2, '0')}:${when.minute.toString().padLeft(2, '0')}';
+    final sameDay = when.year == task.year &&
+        when.month == task.month &&
+        when.day == task.day;
+
+    return sameDay
+        ? 'Bildirim: $time'
+        : 'Bildirim: ${_prettyDateTr(DateTime(when.year, when.month, when.day))} $time';
   }
 
   Future<void> _save() async {
@@ -2678,6 +2972,19 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
     final trimmedNote = _noteController.text.trim();
 
     try {
+      final originalEnabled = widget.plan.reminderEnabled &&
+          widget.plan.reminderMinutesBefore != null;
+
+      if (_reminderEnabled != originalEnabled ||
+          (_reminderEnabled &&
+              _reminderMinutes != widget.plan.reminderMinutesBefore)) {
+        await widget.eventService.updateReminder(
+          id: widget.plan.id,
+          enabled: _reminderEnabled,
+          minutesBefore: _reminderEnabled ? _reminderMinutes : null,
+        );
+      }
+
       await widget.eventService.updatePlanSchedule(
         id: widget.plan.id,
         dateTime: newDateTime,
@@ -2794,7 +3101,27 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                   ),
                 ],
               ),
-              const SizedBox(height: 14),
+              const SizedBox(height: 16),
+              buildReminderSection(
+                context,
+                hasTime: true,
+                reminderEnabled: _reminderEnabled,
+                reminderMinutesBefore: _reminderMinutes,
+                onSelect: _onReminderSelect,
+              ),
+              if (_reminderSummary() != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  _reminderSummary()!,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: theme.brightness == Brightness.dark
+                        ? const Color(0xFFA7A9B0)
+                        : const Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
               TextField(
                 controller: _noteController,
                 minLines: 2,

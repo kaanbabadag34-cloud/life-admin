@@ -79,20 +79,32 @@ class SocialAuthService {
       // gerekirse yeniden doğrulama istenir).
       await _captureAppleToken(credential.authorizationCode);
 
-      // Apple adı yalnızca İLK yetkilendirmede verir; varsa kaydediyoruz
-      // (profil ekranı auth metadata'daki full_name'i okuyor).
-      final fullName = [credential.givenName, credential.familyName]
-          .whereType<String>()
-          .where((part) => part.trim().isNotEmpty)
-          .join(' ');
+      // Apple adı yalnızca İLK yetkilendirmede verir; varsa kullanıcının
+      // Supabase metadata'sına kaydediyoruz (mevcut dolu bir ad ASLA
+      // ezilmez, boş değer ASLA yazılmaz). Başarısızlık girişi bozmaz.
+      final given = credential.givenName?.trim() ?? '';
+      final family = credential.familyName?.trim() ?? '';
+      final fullName = [given, family].where((part) => part.isNotEmpty).join(' ');
+      final existing =
+          _supabase.auth.currentUser?.userMetadata?['full_name']?.toString().trim();
 
-      if (fullName.isNotEmpty) {
-        try {
-          await _supabase.auth.updateUser(
-            UserAttributes(data: {'full_name': fullName}),
-          );
-        } catch (error) {
-          if (kDebugMode) debugPrint('apple name save skipped: $error');
+      if (fullName.isNotEmpty && (existing == null || existing.isEmpty)) {
+        // Apple adı bir daha vermeyeceği için kaydı bir kez daha deneriz.
+        for (var attempt = 1; attempt <= 2; attempt++) {
+          try {
+            await _supabase.auth.updateUser(
+              UserAttributes(
+                data: {
+                  'full_name': fullName,
+                  if (given.isNotEmpty) 'given_name': given,
+                  if (family.isNotEmpty) 'family_name': family,
+                },
+              ),
+            );
+            break;
+          } catch (error) {
+            if (kDebugMode) debugPrint('apple name save attempt $attempt: $error');
+          }
         }
       }
 

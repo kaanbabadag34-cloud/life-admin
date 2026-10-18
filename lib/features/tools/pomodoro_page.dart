@@ -1,8 +1,9 @@
-import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+
+import 'pomodoro_session.dart';
 
 class PomodoroPage extends StatefulWidget {
   const PomodoroPage({super.key});
@@ -13,18 +14,15 @@ class PomodoroPage extends StatefulWidget {
 
 class _PomodoroPageState extends State<PomodoroPage>
     with TickerProviderStateMixin {
-  Timer? _timer;
+  final PomodoroSession _session = PomodoroSession.instance;
 
-  int _focusMinutes = 25;
-  int _breakMinutes = 5;
-
-  late int _totalSeconds;
-  late int _remainingSeconds;
-
-  bool _isRunning = false;
-  bool _isBreak = false;
-
-  int _completedSessions = 0;
+  int get _focusMinutes => _session.focusMinutes;
+  int get _breakMinutes => _session.breakMinutes;
+  int get _totalSeconds => _session.totalSeconds;
+  int get _remainingSeconds => _session.remainingSeconds;
+  bool get _isRunning => _session.isRunning;
+  bool get _isBreak => _session.isBreak;
+  int get _completedSessions => _session.completedSessions;
 
   // Çalışırken halka/orta butonun etrafında yavaşça "nefes alan" glow.
   late final AnimationController _glowController;
@@ -37,8 +35,7 @@ class _PomodoroPageState extends State<PomodoroPage>
   void initState() {
     super.initState();
 
-    _totalSeconds = _focusMinutes * 60;
-    _remainingSeconds = _totalSeconds;
+    _session.addListener(_onSessionChanged);
 
     // Route bazlı yön yönetimi: SADECE bu sayfa hem dikey hem yatay
     // dönebilsin diye main.dart'ta kurulan uygulama geneli portraitUp
@@ -62,95 +59,19 @@ class _PomodoroPageState extends State<PomodoroPage>
     )..forward();
   }
 
-  void _startTimer() {
-    if (_isRunning) return;
-
-    setState(() {
-      _isRunning = true;
-    });
-
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_remainingSeconds > 0) {
-        setState(() {
-          _remainingSeconds--;
-        });
-
-        return;
-      }
-
-      timer.cancel();
-      HapticFeedback.mediumImpact();
-
-      setState(() {
-        _isRunning = false;
-
-        if (_isBreak) {
-          _isBreak = false;
-          _totalSeconds = _focusMinutes * 60;
-          _remainingSeconds = _totalSeconds;
-        } else {
-          _completedSessions++;
-          _isBreak = true;
-          _totalSeconds = _breakMinutes * 60;
-          _remainingSeconds = _totalSeconds;
-        }
-      });
-    });
+  void _onSessionChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _pauseTimer() {
-    _timer?.cancel();
+  void _startTimer() => _session.start();
 
-    setState(() {
-      _isRunning = false;
-    });
-  }
+  void _pauseTimer() => _session.pause();
 
-  void _resetTimer() {
-    _timer?.cancel();
+  void _resetTimer() => _session.reset();
 
-    setState(() {
-      _isRunning = false;
-      _totalSeconds = (_isBreak ? _breakMinutes : _focusMinutes) * 60;
-      _remainingSeconds = _totalSeconds;
-    });
-  }
+  void _changeFocusMinutes(int minutes) => _session.changeFocusMinutes(minutes);
 
-  // Referans tasarımdaki 3. buton ("durdur") mevcut kodda hiç yoktu — en
-  // yakın gerçekçi karşılığı budur: zamanlayıcıyı durdurup Pomodoro
-  // ekranından çıkmak. Yeni bir zamanlayıcı durumu icat edilmedi.
-  void _stopAndExit() {
-    _timer?.cancel();
-    Navigator.of(context).maybePop();
-  }
-
-  void _changeFocusMinutes(int minutes) {
-    _timer?.cancel();
-
-    setState(() {
-      _focusMinutes = minutes;
-      _isRunning = false;
-
-      if (!_isBreak) {
-        _totalSeconds = minutes * 60;
-        _remainingSeconds = _totalSeconds;
-      }
-    });
-  }
-
-  void _changeBreakMinutes(int minutes) {
-    _timer?.cancel();
-
-    setState(() {
-      _breakMinutes = minutes;
-      _isRunning = false;
-
-      if (_isBreak) {
-        _totalSeconds = minutes * 60;
-        _remainingSeconds = _totalSeconds;
-      }
-    });
-  }
+  void _changeBreakMinutes(int minutes) => _session.changeBreakMinutes(minutes);
 
   String get _formattedTime {
     final minutes = _remainingSeconds ~/ 60;
@@ -165,7 +86,7 @@ class _PomodoroPageState extends State<PomodoroPage>
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _session.removeListener(_onSessionChanged);
     _glowController.dispose();
     _entranceController.dispose();
 
@@ -230,7 +151,6 @@ class _PomodoroPageState extends State<PomodoroPage>
       glowController: _glowController,
       onReset: _resetTimer,
       onPlayPause: _isRunning ? _pauseTimer : _startTimer,
-      onStop: _stopAndExit,
     );
 
     final controlsColumn = _PomodoroControls(
@@ -242,7 +162,6 @@ class _PomodoroPageState extends State<PomodoroPage>
       glowController: _glowController,
       onReset: _resetTimer,
       onPlayPause: _isRunning ? _pauseTimer : _startTimer,
-      onStop: _stopAndExit,
     );
 
     return Scaffold(
@@ -380,7 +299,8 @@ class _PomodoroHeader extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _CircleIconButton(
-            icon: Icons.close_rounded,
+            icon: Icons.chevron_left_rounded,
+            iconSize: 30,
             background: circleBg,
             iconColor: iconColor,
             onTap: onClose,
@@ -587,7 +507,6 @@ class _PomodoroControls extends StatelessWidget {
   final AnimationController glowController;
   final VoidCallback onReset;
   final VoidCallback onPlayPause;
-  final VoidCallback onStop;
 
   const _PomodoroControls({
     required this.axis,
@@ -598,53 +517,54 @@ class _PomodoroControls extends StatelessWidget {
     required this.glowController,
     required this.onReset,
     required this.onPlayPause,
-    required this.onStop,
   });
 
   @override
   Widget build(BuildContext context) {
     final gap = axis == Axis.horizontal
-        ? const SizedBox(width: 22)
-        : const SizedBox(height: 22);
+        ? const SizedBox(width: 30)
+        : const SizedBox(height: 30);
 
-    final children = <Widget>[
-      _CircleIconButton(
-        icon: Icons.refresh_rounded,
-        background: circleBg,
-        iconColor: circleIconColor,
-        onTap: onReset,
-        size: 58,
-        iconSize: 22,
-      ),
-      gap,
-      _PlayPauseButton(
-        isRunning: isRunning,
-        color: accentColor,
-        glowController: glowController,
-        onTap: onPlayPause,
-      ),
-      gap,
-      _CircleIconButton(
-        icon: Icons.stop_rounded,
-        background: circleBg,
-        iconColor: circleIconColor,
-        onTap: onStop,
-        size: 58,
-        iconSize: 22,
-      ),
-    ];
+    final reset = _CircleIconButton(
+      icon: Icons.refresh_rounded,
+      background: circleBg,
+      iconColor: circleIconColor,
+      onTap: onReset,
+      size: 58,
+      iconSize: 22,
+    );
 
-    return axis == Axis.horizontal
-        ? Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: children,
-          )
-        : Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: children,
-          );
+    final playPause = _PlayPauseButton(
+      isRunning: isRunning,
+      color: accentColor,
+      glowController: glowController,
+      onTap: onPlayPause,
+    );
+
+    // Play/Pause, kardeş butondan bağımsız olarak alanın tam merkezinde
+    // durur: iki yanında eşit genişlikte (Expanded) boşluklar var, sıfırlama
+    // butonu sol (yatay) / üst (dikey) tarafın iç kenarına hizalanır.
+    if (axis == Axis.horizontal) {
+      return Row(
+        children: [
+          Expanded(child: Align(alignment: Alignment.centerRight, child: reset)),
+          gap,
+          playPause,
+          gap,
+          const Expanded(child: SizedBox.shrink()),
+        ],
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(child: Align(alignment: Alignment.bottomCenter, child: reset)),
+        gap,
+        playPause,
+        gap,
+        const Expanded(child: SizedBox.shrink()),
+      ],
+    );
   }
 }
 

@@ -32,6 +32,10 @@ class Plan {
   // Serbest metin not (opsiyonel).
   final String? note;
 
+  // Etkinlik süresi (dakika). null = belirtilmemiş (Apple Takvim'de varsayılan
+  // 60 dk). Başlangıç saatinden, hatırlatma ofsetinden BAĞIMSIZDIR.
+  final int? durationMinutes;
+
   final DateTime createdAt;
 
   const Plan({
@@ -44,6 +48,7 @@ class Plan {
     required this.reminderEnabled,
     this.reminderMinutesBefore,
     this.note,
+    this.durationMinutes,
     required this.createdAt,
   });
 }

@@ -24,6 +24,14 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Life Admin, sesli görev eklemek için yalnızca mikrofon butonuna basılı tuttuğun sürece konuşmanı dinler. Ses kaydedilmez veya saklanmaz.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Life Admin, söylediklerini yazıya çevirip görev oluşturmak için Apple'ın konuşma tanıma hizmetini kullanır. Ses Life Admin sunucularına gönderilmez veya saklanmaz.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Life Admin, tarihli ve saatli görevlerini Apple Takvim'e ekleyip güncelleyebilmek için takvimine erişim ister. Yalnızca Life Admin'ın oluşturduğu etkinlikleri değiştirir veya siler.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Life Admin, tarihli ve saatli görevlerini Apple Takvim'e ekleyip güncelleyebilmek için takvimine erişim ister. Yalnızca Life Admin'ın oluşturduğu etkinlikleri değiştirir veya siler.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -37,6 +45,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

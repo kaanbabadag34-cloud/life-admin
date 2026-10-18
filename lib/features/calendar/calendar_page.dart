@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../services/notification_service.dart';
+import '../../utils/reminder_format.dart';
+import '../../widgets/reminder_section.dart';
 import '../../utils/confirm_dialog.dart';
 import '../../utils/error_messages.dart';
 import '../plans/event_service.dart';
@@ -74,13 +76,6 @@ String _dayHeaderLabel(DateTime date) {
     return 'Bugün';
   }
   return _prettyDate(date);
-}
-
-String _reminderLabel(int minutes) {
-  if (minutes == 60) {
-    return '1 saat';
-  }
-  return '$minutes dakika';
 }
 
 // Takvim ekranındaki tüm kısa bilgilendirme mesajları (plan eklendi/
@@ -519,82 +514,12 @@ Widget _iosReminderSection(
   required int reminderMinutesBefore,
   required ValueChanged<int?> onSelect,
 }) {
-  final theme = Theme.of(context);
-  final colors = theme.colorScheme;
-  final isDark = theme.brightness == Brightness.dark;
-  final surface = isDark ? const Color(0xFF23252B) : const Color(0xFFF3F4F7);
-  final textColor = isDark ? Colors.white : const Color(0xFF17171A);
-  final muted = isDark ? const Color(0xFFA7A9B0) : const Color(0xFF6B7280);
-
-  Widget chip(String label, bool selected, VoidCallback? onTap) {
-    return CupertinoButton(
-      padding: EdgeInsets.zero,
-      onPressed: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: selected ? colors.primary : surface,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected
-                ? Colors.white
-                : (onTap == null ? muted : textColor),
-          ),
-        ),
-      ),
-    );
-  }
-
-  return Opacity(
-    opacity: hasTime ? 1 : 0.55,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Hatırlatıcı',
-          style: TextStyle(
-            fontSize: 13,
-            color: muted,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (!hasTime)
-          Text(
-            'Hatırlatıcı için önce bir saat belirle.',
-            style: TextStyle(fontSize: 12.5, color: muted),
-          )
-        else
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              chip('Kapalı', !reminderEnabled, () => onSelect(null)),
-              chip(
-                '15 dk önce',
-                reminderEnabled && reminderMinutesBefore == 15,
-                () => onSelect(15),
-              ),
-              chip(
-                '30 dk önce',
-                reminderEnabled && reminderMinutesBefore == 30,
-                () => onSelect(30),
-              ),
-              chip(
-                '1 saat önce',
-                reminderEnabled && reminderMinutesBefore == 60,
-                () => onSelect(60),
-              ),
-            ],
-          ),
-      ],
-    ),
+  return buildReminderSection(
+    context,
+    hasTime: hasTime,
+    reminderEnabled: reminderEnabled,
+    reminderMinutesBefore: reminderMinutesBefore,
+    onSelect: onSelect,
   );
 }
 
@@ -637,8 +562,9 @@ class CalendarPageState extends State<CalendarPage>
     super.dispose();
   }
 
-  // Aynı plan için her seferinde aynı notification ID üretir.
-  int _notificationId(Plan plan) {
+  // ESKİ kimlik (başlık|tarih|kategori hash'i) — yalnızca bu sürümden önce
+  // kurulmuş bildirimleri iptal edebilmek için tutuluyor.
+  int _legacyNotificationId(Plan plan) {
     final date = plan.dateTime?.toUtc().toIso8601String() ?? '';
 
     final value = '${plan.title}|$date|${plan.category.name}';
@@ -660,20 +586,35 @@ class CalendarPageState extends State<CalendarPage>
       return;
     }
 
-    await NotificationService.instance.schedulePlanReminder(
-      id: _notificationId(plan),
+    final scheduled = await NotificationService.instance.schedulePlanReminder(
+      id: NotificationService.reminderIdFor(plan.id),
       title: plan.title,
       planDateTime: plan.dateTime!,
       minutesBefore: plan.reminderMinutesBefore!,
     );
+
+    if (!scheduled &&
+        mounted &&
+        !await NotificationService.instance.notificationsAllowed()) {
+      if (!mounted) return;
+      _showCalendarSnack(
+        context,
+        'Bildirim izni kapalı. Hatırlatma için iPhone Ayarlar → Bildirimler '
+        '→ Life Admin bölümünden izin ver.',
+      );
+    }
   }
 
   Future<void> _cancelReminder(Plan plan) async {
-    if (!plan.reminderEnabled || plan.dateTime == null) {
-      return;
-    }
+    final notifications = NotificationService.instance;
 
-    await NotificationService.instance.cancelReminder(_notificationId(plan));
+    await notifications.cancelReminder(
+      NotificationService.reminderIdFor(plan.id),
+    );
+
+    if (plan.reminderEnabled && plan.dateTime != null) {
+      await notifications.cancelReminder(_legacyNotificationId(plan));
+    }
   }
 
   // ACİL BUG DÜZELTMESİ — KÖK NEDEN: bu metot HER çağrıldığında (yani
@@ -881,6 +822,14 @@ class CalendarPageState extends State<CalendarPage>
     try {
       await _cancelReminder(original);
 
+      // Hatırlatma ayarı DB'ye de yazılır (eskiden yalnızca yerel bildirim
+      // kuruluyordu); bildirimi EventService de bu değerlere göre kurar.
+      await _eventService.updateReminder(
+        id: original.id,
+        enabled: reminderEnabled,
+        minutesBefore: reminderMinutesBefore,
+      );
+
       await _eventService.updatePlanSchedule(
         id: original.id,
         dateTime: dateTime,
@@ -948,7 +897,7 @@ class CalendarPageState extends State<CalendarPage>
     _showCalendarSnack(
       context,
       result.reminderEnabled
-          ? 'Plan eklendi • ${_reminderLabel(result.reminderMinutesBefore!)} önce hatırlatılacak.'
+          ? 'Plan eklendi • ${reminderOffsetLabel(result.reminderMinutesBefore!)} hatırlatılacak.'
           : 'Plan eklendi.',
     );
   }
@@ -1855,8 +1804,26 @@ class _AddPlanSheetState extends State<_AddPlanSheet> {
     );
 
     try {
-      await widget.eventService.addPlan(plan);
-      await widget.scheduleReminder(plan);
+      final insertedId = await widget.eventService.addPlan(plan);
+
+      // Bildirim, DB kimliğiyle (EventService'in kurduğuyla AYNI kimlik)
+      // yeniden kurulur: yerel geçici kimlikle kurulsaydı çift bildirim olurdu.
+      if (insertedId != null) {
+        await widget.scheduleReminder(
+          Plan(
+            id: insertedId,
+            title: plan.title,
+            dateTime: plan.dateTime,
+            category: plan.category,
+            source: plan.source,
+            isCompleted: plan.isCompleted,
+            reminderEnabled: plan.reminderEnabled,
+            reminderMinutesBefore: plan.reminderMinutesBefore,
+            note: plan.note,
+            createdAt: plan.createdAt,
+          ),
+        );
+      }
 
       if (!mounted) return;
 
@@ -2275,6 +2242,15 @@ class _CalendarPlanCard extends StatelessWidget {
 
     final isDone = plan.isCompleted;
 
+    // Saat yalnızca kullanıcı belirlediyse (00:00 = "saatsiz") gösterilir;
+    // AI ve manuel görevler aynı alanı (dateTime) kullandığı için aynı çalışır.
+    final planDateTime = plan.dateTime;
+    final timeLabel = planDateTime != null && _hasExplicitTime(planDateTime)
+        ? _formatTimeOfDay(
+            TimeOfDay(hour: planDateTime.hour, minute: planDateTime.minute),
+          )
+        : null;
+
     return Material(
       color: surface,
       borderRadius: BorderRadius.circular(18),
@@ -2358,7 +2334,7 @@ class _CalendarPlanCard extends StatelessWidget {
                           const SizedBox(width: 4),
 
                           Text(
-                            '${_reminderLabel(plan.reminderMinutesBefore!)} önce',
+                            reminderOffsetLabel(plan.reminderMinutesBefore!),
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: secondaryText,
                               fontSize: 11,
@@ -2370,6 +2346,25 @@ class _CalendarPlanCard extends StatelessWidget {
                   ],
                 ),
               ),
+
+              if (timeLabel != null) ...[
+                const SizedBox(width: 10),
+                Text(
+                  timeLabel,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: -0.2,
+                    height: 1.2,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: isDone
+                        ? secondaryText.withValues(alpha: 0.6)
+                        : secondaryText,
+                  ),
+                ),
+              ],
+
+              const SizedBox(width: 4),
 
               Icon(Icons.chevron_right_rounded, color: secondaryText, size: 20),
             ],

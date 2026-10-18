@@ -1,8 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app/theme/theme_controller.dart';
 import '../../utils/error_messages.dart';
+import '../../utils/user_name.dart';
+import '../../services/apple_calendar_service.dart';
+import '../../services/notification_service.dart';
+import '../plans/event_service.dart';
 import 'account_security_page.dart';
 import 'premium_page.dart';
 import 'purchase_service.dart';
@@ -20,10 +27,18 @@ class ProfilePage extends StatefulWidget {
   ProfilePageState createState() => ProfilePageState();
 }
 
-class ProfilePageState extends State<ProfilePage> {
+class ProfilePageState extends State<ProfilePage>
+    with WidgetsBindingObserver {
   final SupabaseClient _supabase = Supabase.instance.client;
 
+  StreamSubscription<AuthState>? _authSubscription;
+
   bool _loading = true;
+  bool _calendarSyncEnabled = false;
+  bool _notificationsOn = false;
+  bool _systemNotificationsDenied = false;
+  bool _notificationsBusy = false;
+  bool _calendarSyncBusy = false;
 
   String _plan = 'free';
   int _aiUsage = 0;
@@ -38,30 +53,8 @@ class ProfilePageState extends State<ProfilePage> {
   // _userFirstName() ile aynı (orada ilk isme kısaltılıyor, burada Hesabım
   // kartında TAM isim gösterilecek). İsim yoksa null döner ve mevcut
   // e-posta-only görünüm hiçbir şey kaybetmeden korunur.
-  String? get _displayName {
-    final metadata = _supabase.auth.currentUser?.userMetadata;
-    final profile = _profileRow;
-
-    final candidates = <String?>[
-      profile?['full_name']?.toString(),
-      profile?['name']?.toString(),
-      profile?['display_name']?.toString(),
-      metadata?['full_name']?.toString(),
-      metadata?['name']?.toString(),
-      metadata?['display_name']?.toString(),
-      metadata?['given_name']?.toString(),
-      metadata?['first_name']?.toString(),
-    ];
-
-    for (final candidate in candidates) {
-      final trimmed = candidate?.trim();
-      if (trimmed != null && trimmed.isNotEmpty) {
-        return trimmed;
-      }
-    }
-
-    return null;
-  }
+  String? get _displayName =>
+      resolveFullName(_supabase.auth.currentUser, _profileRow);
 
   bool get _isPremium => _plan == 'premium';
 
@@ -86,7 +79,24 @@ class ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     refreshProfile();
+    _loadCalendarSyncState();
+    _loadNotificationState();
+    // Apple adı giriş sonrasında kaydedilince Hesabım kartı kendini yeniler.
+    _authSubscription =
+        _supabase.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.userUpdated && mounted) {
+        setState(() {});
+      }
+    }, onError: (_) {});
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _authSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> refreshProfile() async {
@@ -153,6 +163,143 @@ class ProfilePageState extends State<ProfilePage> {
         ),
       );
     }
+  }
+
+  // iPhone Ayarlar'dan dönünce izin durumu yeniden kontrol edilir.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadNotificationState(rescheduleIfNewlyOn: true);
+    }
+  }
+
+  // Anahtar = uygulama tercihi VE iOS izni. İzin kapalıysa anahtar kapalı
+  // görünür ve alt yazı nedenini söyler.
+  Future<void> _loadNotificationState({bool rescheduleIfNewlyOn = false}) async {
+    final service = NotificationService.instance;
+    final appEnabled = await service.isAppEnabled();
+    final systemAllowed = await service.notificationsAllowed();
+    final effective = appEnabled && systemAllowed;
+
+    if (!mounted) return;
+
+    final newlyOn = effective && !_notificationsOn;
+
+    setState(() {
+      _notificationsOn = effective;
+      _systemNotificationsDenied = !systemAllowed;
+    });
+
+    // Ayarlardan izin verilip dönüldüyse gelecekteki hatırlatmaları yeniden kur.
+    if (rescheduleIfNewlyOn && newlyOn) {
+      await EventService().rescheduleAllReminders();
+    }
+  }
+
+  Future<void> _openSystemNotificationSettings() async {
+    try {
+      await launchUrl(Uri.parse('app-settings:'));
+    } catch (_) {}
+  }
+
+  Future<void> _showNotificationsDeniedDialog() async {
+    final open = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Bildirimler kapalı'),
+          content: const Text(
+            'Hatırlatmaları alabilmek için iPhone Ayarlar → Life Admin → '
+            'Bildirimler bölümünden izin vermen gerekiyor.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Vazgeç'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Ayarları Aç'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (open == true) await _openSystemNotificationSettings();
+  }
+
+  // Kapatmak YALNIZCA Life Admin'ın yerel bildirimlerini yönetir (iOS sistem
+  // izni uygulamadan kapatılamaz). Açarken izin yoksa sistem penceresi,
+  // reddedilmişse iPhone ayarlarına yönlendirme gösterilir.
+  Future<void> _setNotifications(bool value) async {
+    if (_notificationsBusy) return;
+
+    setState(() => _notificationsBusy = true);
+
+    final service = NotificationService.instance;
+
+    if (!value) {
+      await service.setAppEnabled(false);
+      await service.cancelAll();
+    } else {
+      await service.setAppEnabled(true);
+      final allowed = await service.ensurePermission();
+
+      if (allowed) {
+        await EventService().rescheduleAllReminders();
+      } else if (mounted) {
+        await _showNotificationsDeniedDialog();
+      }
+    }
+
+    _notificationsBusy = false;
+    await _loadNotificationState();
+  }
+
+  Future<void> _loadCalendarSyncState() async {
+    final service = AppleCalendarService.instance;
+    final enabled = await service.isEnabled() &&
+        await service.permissionStatus() == CalendarPermission.granted;
+
+    if (!mounted) return;
+    setState(() => _calendarSyncEnabled = enabled);
+  }
+
+  // Açarken iOS takvim iznini ister; izin verilmezse anahtar kapalı kalır ve
+  // uygulama normal çalışmaya devam eder. Kapatmak yalnızca YENİ
+  // senkronizasyonu durdurur, mevcut takvim etkinliklerini silmez.
+  Future<void> _setCalendarSync(bool value) async {
+    if (_calendarSyncBusy) return;
+
+    setState(() => _calendarSyncBusy = true);
+
+    final service = AppleCalendarService.instance;
+    var enabled = false;
+
+    if (value) {
+      enabled = await service.enable();
+
+      if (!enabled && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Takvim izni verilmedi. İstersen iPhone Ayarlar → Life Admin '
+              'bölümünden izin verebilirsin.',
+            ),
+          ),
+        );
+      }
+    } else {
+      await service.disable();
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _calendarSyncEnabled = enabled;
+      _calendarSyncBusy = false;
+    });
   }
 
   Future<void> _openPremiumPage() async {
@@ -479,9 +626,9 @@ class ProfilePageState extends State<ProfilePage> {
                     alignment: Alignment.center,
                     child: name != null && name.isNotEmpty
                         ? Text(
-                            name.trim()[0].toUpperCase(),
+                            initialsOf(name),
                             style: TextStyle(
-                              fontSize: 20,
+                              fontSize: 18,
                               fontWeight: FontWeight.w800,
                               color: colors.primary,
                             ),
@@ -800,13 +947,36 @@ class ProfilePageState extends State<ProfilePage> {
                       child: Column(
                         children: [
                           _SettingsRow(
+                            icon: Icons.event_available_outlined,
+                            iconColor: colors.primary,
+                            isDark: isDark,
+                            title: 'Apple Takvim ile Eşzamanla',
+                            subtitle: 'Saatli görevler Takvim’e eklenir',
+                            secondaryText: secondaryText,
+                            border: border,
+                            trailing: Switch.adaptive(
+                              value: _calendarSyncEnabled,
+                              onChanged:
+                                  _calendarSyncBusy ? null : _setCalendarSync,
+                            ),
+                            onTap: () => _setCalendarSync(!_calendarSyncEnabled),
+                          ),
+                          _SettingsRow(
                             icon: Icons.notifications_none_rounded,
                             iconColor: colors.primary,
                             isDark: isDark,
                             title: 'Bildirimler',
+                            subtitle: _systemNotificationsDenied
+                                ? 'iPhone ayarlarında kapalı'
+                                : (_notificationsOn ? 'Açık' : 'Kapalı'),
                             secondaryText: secondaryText,
                             border: border,
-                            onTap: () => _showComingSoon('Bildirim ayarları'),
+                            trailing: Switch.adaptive(
+                              value: _notificationsOn,
+                              onChanged:
+                                  _notificationsBusy ? null : _setNotifications,
+                            ),
+                            onTap: () => _setNotifications(!_notificationsOn),
                           ),
                           _SettingsRow(
                             icon: Icons.dark_mode_outlined,
@@ -962,6 +1132,7 @@ class _SettingsRow extends StatelessWidget {
   final Color border;
   final VoidCallback onTap;
   final bool isLast;
+  final Widget? trailing;
 
   const _SettingsRow({
     required this.icon,
@@ -973,6 +1144,7 @@ class _SettingsRow extends StatelessWidget {
     required this.onTap,
     this.subtitle,
     this.isLast = false,
+    this.trailing,
   });
 
   @override
@@ -992,10 +1164,11 @@ class _SettingsRow extends StatelessWidget {
                   subtitle!,
                   style: TextStyle(color: secondaryText, fontSize: 12),
                 ),
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: secondaryText,
-          ),
+          trailing: trailing ??
+              Icon(
+                Icons.chevron_right_rounded,
+                color: secondaryText,
+              ),
           onTap: onTap,
         ),
         if (!isLast) Divider(height: 1, color: border),

@@ -38,34 +38,25 @@ class ToolsPage extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
-            Row(
+            Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Araçlar',
-                        style: theme.textTheme.headlineLarge?.copyWith(
-                          fontSize: 34,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.8,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'Hayatını biraz daha kolaylaştır.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: secondaryText,
-                          fontSize: 14.5,
-                        ),
-                      ),
-                    ],
+                Text(
+                  'Araçlar',
+                  style: theme.textTheme.headlineLarge?.copyWith(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.8,
                   ),
                 ),
-                const SizedBox(width: 12),
-                _HandwrittenAccent(color: accent),
+                const SizedBox(height: 6),
+                Text(
+                  'Hayatını biraz daha kolaylaştır.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: secondaryText,
+                    fontSize: 14.5,
+                  ),
+                ),
               ],
             ),
 
@@ -115,51 +106,6 @@ class ToolsPage extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const CountdownPage()),
                 );
               },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// "Daha iyi bir sen" — el yazısı hissi için iOS'un kendi sistem betik
-// fontlarından biri deneniyor (bundle edilen bir font dosyası YOK; bu
-// isimler bulunamazsa Flutter sessizce platform varsayılanına düşer —
-// app_theme.dart'taki .SF Pro Display/.SF Pro Text ile aynı güvenli
-// desen). Bulunamadığında bile italik + accent renk sayesinde makul bir
-// vurgu metni olarak kalır.
-class _HandwrittenAccent extends StatelessWidget {
-  final Color color;
-
-  const _HandwrittenAccent({required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 6),
-      child: Transform.rotate(
-        angle: -0.05,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              'Daha iyi\nbir sen',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontFamily: 'SnellRoundhand',
-                fontStyle: FontStyle.italic,
-                fontSize: 19,
-                fontWeight: FontWeight.w600,
-                height: 1.05,
-                color: color,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Container(
-              width: 64,
-              height: 2,
-              color: color.withValues(alpha: 0.7),
             ),
           ],
         ),

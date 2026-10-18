@@ -1,7 +1,10 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+
+import '../utils/reminder_format.dart';
 
 class NotificationService {
   NotificationService._();
@@ -47,6 +50,81 @@ class NotificationService {
     // bombardımanı olmaz.
   }
 
+  // Plan başına SABİT bildirim kimliği: aynı plan için tekrar planlama aynı
+  // kimliğin üzerine yazar (çift bildirim oluşmaz). Plan başlığı/tarihi
+  // değişse bile kimlik değişmez.
+  static int reminderIdFor(String planId) {
+    var hash = 2166136261;
+
+    for (final codeUnit in 'plan-reminder|$planId'.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 16777619) & 0x7fffffff;
+    }
+
+    return hash;
+  }
+
+  static const String _appEnabledKey = 'notifications_enabled_by_app';
+
+  // Uygulama içi tercih (iOS sistem iznini DEĞİŞTİRMEZ): kapalıyken Life Admin
+  // hiçbir yerel bildirim planlamaz. Varsayılan açık.
+  Future<bool> isAppEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_appEnabledKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> setAppEnabled(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_appEnabledKey, value);
+    } catch (_) {}
+  }
+
+  // Bildirim izni şu an açık mı? (izin PENCERESİ AÇMAZ)
+  Future<bool> notificationsAllowed() async {
+    try {
+      final options = await _notifications
+          .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin>()
+          ?.checkPermissions();
+
+      // iOS dışında (veya bilgi yoksa) engel olduğunu varsaymayız.
+      return options?.isEnabled ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  // Gerekirse izin penceresini açar; sonuç: bildirim gönderilebilir mi?
+  Future<bool> ensurePermission() async {
+    try {
+      final ios = _notifications
+          .resolvePlatformSpecificImplementation<
+              IOSFlutterLocalNotificationsPlugin>();
+
+      if (ios != null) {
+        final granted = await ios.requestPermissions(
+          alert: true,
+          badge: true,
+          sound: true,
+        );
+        return granted ?? await notificationsAllowed();
+      }
+
+      final android = _notifications
+          .resolvePlatformSpecificImplementation<
+              AndroidFlutterLocalNotificationsPlugin>();
+      final granted = await android?.requestNotificationsPermission();
+      return granted ?? true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> requestPermissions() async {
     await _notifications
         .resolvePlatformSpecificImplementation<
@@ -63,27 +141,28 @@ class NotificationService {
         );
   }
 
-  Future<void> schedulePlanReminder({
+  // Bildirim planlandıysa true. Geçmiş zamana asla planlanmaz; izin yoksa
+  // planlanmaz (false).
+  Future<bool> schedulePlanReminder({
     required int id,
     required String title,
     required DateTime planDateTime,
     required int minutesBefore,
   }) async {
-    final reminderTime = planDateTime.subtract(
-      Duration(
-        minutes: minutesBefore,
-      ),
-    );
+    // Kullanıcı Bildirimler'i uygulama içinden kapattıysa planlama yapılmaz.
+    if (!await isAppEnabled()) return false;
 
-    if (reminderTime.isBefore(
+    final reminderTime = reminderTimeFor(planDateTime, minutesBefore);
+
+    if (!reminderTime.isAfter(
       DateTime.now(),
     )) {
-      return;
+      return false;
     }
 
     // İzin yalnızca kullanıcı gerçekten bir hatırlatıcı kurmak istediğinde
     // istenir (açılışta değil).
-    await requestPermissions();
+    if (!await ensurePermission()) return false;
 
     final scheduledDate =
         tz.TZDateTime.from(
@@ -93,7 +172,7 @@ class NotificationService {
 
     await _notifications.zonedSchedule(
       id: id,
-      title: '$title yaklaşıyor',
+      title: minutesBefore <= 0 ? title : '$title yaklaşıyor',
       body: null,
       scheduledDate: scheduledDate,
       notificationDetails:
@@ -115,6 +194,8 @@ class NotificationService {
       androidScheduleMode:
           AndroidScheduleMode.inexactAllowWhileIdle,
     );
+
+    return true;
   }
 
   Future<void> cancelReminder(
