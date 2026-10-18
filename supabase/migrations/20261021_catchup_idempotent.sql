@@ -10,6 +10,10 @@
 -- hepsini kapsar. profiles / events TABLOLARININ kendisi bu repoda hiç
 -- tanımlanmadı (dashboard'da oluşturulmuş); bu dosya onları OLUŞTURMAZ, yalnızca
 -- kodun beklediği kolonları ekler.
+--
+-- NOT: profiles tablosunun istemci yazmalarına kapatılması bu dosyanın
+-- kapsamında DEĞİLDİR; bunun için ayrıca
+-- 20261023_lock_profiles_client_writes.sql çalıştırılmalıdır.
 
 -- ---------------------------------------------------------------------------
 -- 1) events: kodun kullandığı kolonlar
@@ -22,10 +26,15 @@ ALTER TABLE public.events
   ADD COLUMN IF NOT EXISTS source text,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
+-- Kısıt ADA göre değil tanımına göre aranır: duration_minutes için bir CHECK
+-- zaten varsa (başka adla bile) ikincisi eklenmez.
 DO $$
 BEGIN
   IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'events_duration_minutes_check'
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.events'::regclass
+      AND contype = 'c'
+      AND pg_get_constraintdef(oid) ILIKE '%duration_minutes%'
   ) THEN
     ALTER TABLE public.events
       ADD CONSTRAINT events_duration_minutes_check
@@ -84,6 +93,10 @@ CREATE TABLE IF NOT EXISTS public.journal_entries (
 ALTER TABLE public.countdowns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.journal_entries ENABLE ROW LEVEL SECURITY;
 
+-- Politikalar AD'a göre değil (tablo + komut) bazında kontrol edilir: canlı
+-- veritabanında aynı işi yapan politikalar farklı adlarla ("Users can create
+-- own countdowns" gibi) zaten olabilir; o durumda ÇOĞALTILMAZ. Mevcut hiçbir
+-- politika silinmez veya değiştirilmez.
 DO $$
 DECLARE
   spec record;
@@ -102,7 +115,9 @@ BEGIN
   LOOP
     IF NOT EXISTS (
       SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = spec.tbl AND policyname = spec.pol
+      WHERE schemaname = 'public'
+        AND tablename = spec.tbl
+        AND cmd = spec.cmd
     ) THEN
       EXECUTE format(
         'CREATE POLICY %I ON public.%I FOR %s%s%s',
