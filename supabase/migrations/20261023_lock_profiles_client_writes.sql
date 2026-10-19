@@ -11,9 +11,9 @@
 --
 -- Bu migration TEKRAR ÇALIŞTIRILABİLİR: yetkileri kaldırmak zaten olmayan bir
 -- yetki için hata vermez; fonksiyon/trigger yeniden oluşturulur. Hiçbir
--- kullanıcı verisi okunmaz, değiştirilmez veya silinmez. Canlı veritabanında
--- bu değişikliklerin yetki kısmı daha önce elle uygulandı; bu dosya kaydını ve
--- (varsa eksik) trigger'ı tamamlar.
+-- kullanıcı verisi okunmaz, değiştirilmez veya silinmez. Bu dosya, canlı
+-- veritabanında elle uygulanan SQL ile BİREBİR uyumludur (yetki kaldırma +
+-- protect_profile_entitlements fonksiyonu/trigger'ı; hata mesajı dahil).
 --
 -- Doğrulama: supabase/verification/profiles_client_lockdown_check.sql
 
@@ -32,24 +32,28 @@ LANGUAGE plpgsql
 SET search_path = ''
 AS $$
 BEGIN
-  IF current_user IN ('authenticated', 'anon') THEN
-    IF NEW.id                                   IS DISTINCT FROM OLD.id
-    OR NEW.plan                                 IS DISTINCT FROM OLD.plan
-    OR NEW.ai_usage                             IS DISTINCT FROM OLD.ai_usage
-    OR NEW.ai_usage_reset_at                    IS DISTINCT FROM OLD.ai_usage_reset_at
-    OR NEW.created_at                           IS DISTINCT FROM OLD.created_at
-    OR NEW.subscription_status                  IS DISTINCT FROM OLD.subscription_status
-    OR NEW.subscription_platform                IS DISTINCT FROM OLD.subscription_platform
-    OR NEW.subscription_product_id              IS DISTINCT FROM OLD.subscription_product_id
-    OR NEW.subscription_expires_at              IS DISTINCT FROM OLD.subscription_expires_at
-    OR NEW.subscription_original_transaction_id IS DISTINCT FROM OLD.subscription_original_transaction_id
-    THEN
-      RAISE EXCEPTION 'Bu alanlar yalnızca sunucu tarafından değiştirilebilir.'
-        USING ERRCODE = '42501';
-    END IF;
-  END IF;
+    IF current_user IN ('authenticated', 'anon') THEN
 
-  RETURN NEW;
+        IF NEW.id IS DISTINCT FROM OLD.id
+        OR NEW.plan IS DISTINCT FROM OLD.plan
+        OR NEW.ai_usage IS DISTINCT FROM OLD.ai_usage
+        OR NEW.ai_usage_reset_at IS DISTINCT FROM OLD.ai_usage_reset_at
+        OR NEW.created_at IS DISTINCT FROM OLD.created_at
+        OR NEW.subscription_status IS DISTINCT FROM OLD.subscription_status
+        OR NEW.subscription_platform IS DISTINCT FROM OLD.subscription_platform
+        OR NEW.subscription_product_id IS DISTINCT FROM OLD.subscription_product_id
+        OR NEW.subscription_expires_at IS DISTINCT FROM OLD.subscription_expires_at
+        OR NEW.subscription_original_transaction_id
+           IS DISTINCT FROM OLD.subscription_original_transaction_id
+        THEN
+            RAISE EXCEPTION
+              'Protected profile fields cannot be modified by clients.'
+              USING ERRCODE = '42501';
+        END IF;
+
+    END IF;
+
+    RETURN NEW;
 END;
 $$;
 
