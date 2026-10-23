@@ -23,20 +23,20 @@
   <main class="doc">
     <div class="wrap"><div class="doc-inner">
       <h1>Gizlilik Politikası</h1>
-      <p class="meta">Son güncelleme: 12 Ekim 2026</p>
+      <p class="meta">Son güncelleme: 24 Ekim 2026</p>
 
-      <p>Bu politika, Life Admin mobil uygulamasını ("Life Admin", "uygulama") kullandığında hangi kişisel verilerin işlendiğini, bunların neden işlendiğini ve hangi haklara sahip olduğunu açıklar. Verilerini satmıyoruz.</p>
+      <p>Bu politika, Life Admin mobil uygulamasını ("Life Admin", "uygulama") kullandığında hangi kişisel verilerin işlendiğini, bunların neden işlendiğini ve hangi haklara sahip olduğunu açıklar. Verilerini satmıyoruz. Bu politika, Life Admin'in şu anda App Store'da bulunan sürümü için geçerlidir; uygulamaya yeni özellikler eklendiğinde bu sayfa güncellenir.</p>
 
       <div class="callout"><p><strong>Kısaca:</strong> Hesabın ve oluşturduğun plan, görev, günlük ve sayaç içerikleri hizmeti sunmak için saklanır. Kişisel verilerini satmıyoruz, reklam amacıyla paylaşmıyoruz. Hesabını uygulamadan istediğin zaman silebilirsin.</p></div>
 
       <h2>1. Topladığımız veriler</h2>
       <p><strong>Hesap bilgileri.</strong> E-posta ve şifre ile giriş yaparsan e-posta adresini ve şifreni (şifre yalnızca doğrulama için kullanılır, hizmet sağlayıcımız tarafından korunarak saklanır) işleriz. Apple ile giriş yaparsan Apple'ın paylaştığı e-posta adresini (Apple'ın "E-postamı Gizle" seçeneğini kullandıysan Apple'ın oluşturduğu aktarma adresini) ve izin verdiysen adını alırız. Google ile giriş yaparsan Google hesabının e-posta adresini ve adını alırız.</p>
       <p><strong>Oluşturduğun içerik.</strong> Uygulamada oluşturduğun planlar ve görevler (başlık, tür, tarih ve saat, tamamlanma durumu, hatırlatıcı ayarı, notun ve planın elle mi yoksa yapay zekâ ile mi oluşturulduğu), günlük kayıtların ve sayaçlar (başlık ve hedef tarih) hesabına bağlı olarak saklanır.</p>
-      <p><strong>Yapay zekâ kullanımı.</strong> Yapay zekâ ile plan oluşturmak için yazdığın metin işlenmek üzere sunucularımıza gönderilir. Ayrıca kullanım limitini uygulayabilmek için kaç yapay zekâ isteği yaptığını ve sayacın ne zaman sıfırlandığını tutarız.</p>
+      <p><strong>Yapay zekâ kullanımı.</strong> Yapay zekâ ile plan oluşturmak için bir komut gönderdiğinde, yazdığın metin işlenmek üzere sunucu fonksiyonumuza ve oradan üçüncü taraf yapay zekâ hizmeti OpenAI'a iletilir (ayrıntı için 5. bölüm). Ayrıca kullanım limitini uygulayabilmek için kaç yapay zekâ isteği yaptığını ve sayacın ne zaman sıfırlandığını tutarız.</p>
       <p><strong>Abonelik bilgileri.</strong> Premium abonelik satın aldığında Apple'dan gelen imzalı işlem bilgisini sunucumuzda doğrularız ve hesabına şunları kaydederiz: plan durumu, ürün (aylık/yıllık), bitiş tarihi, abonelik durumu ve Apple'ın verdiği orijinal işlem numarası. Kart veya diğer ödeme bilgilerine erişemeyiz; ödeme tamamen Apple tarafından yürütülür.</p>
       <p><strong>Apple yetkilendirme anahtarı.</strong> Apple ile giriş yaptıysan, hesabını sildiğinde Apple'daki yetkilendirmeni de iptal edebilmek için Apple'ın verdiği bir yenileme anahtarını yalnızca sunucu tarafında, istemcilerin erişemediği bir tabloda saklarız. Bu anahtar başka hiçbir amaçla kullanılmaz.</p>
-      <p><strong>Cihazda kalan veriler.</strong> Hatırlatıcılar, cihazında yerel bildirim olarak zamanlanır. Bildirimleri göndermek için verilerini üçüncü taraflara aktarmayız.</p>
-      <p><strong>Toplamadıklarımız.</strong> Konumunu, rehberini, fotoğraflarını, kameranı veya mikrofonunu kullanmıyoruz. Uygulama şu anda üçüncü taraf reklam veya analitik SDK'sı içermiyor.</p>
+      <p><strong>Cihazda kalan veriler.</strong> Hatırlatıcılar, cihazında yerel bildirim olarak zamanlanır. Bildirimleri göndermek için verilerini üçüncü taraflara aktarmayız. Giriş oturumun, çıkış yapana kadar cihazında saklanır.</p>
+      <p><strong>Toplamadıklarımız.</strong> Konumunu, rehberini, fotoğraflarını, kameranı, mikrofonunu veya takvimini kullanmıyoruz. Uygulama şu anda üçüncü taraf reklam veya analitik SDK'sı içermiyor.</p>
 
       <h2>2. Verileri neden kullanıyoruz</h2>
       <ul>
@@ -55,15 +55,19 @@
         <li><strong>Vercel:</strong> satın alma doğrulama, hesap silme ve Apple ile giriş yetkilendirmesini yöneten sunucu uç noktalarımızın barındırıldığı altyapı.</li>
         <li><strong>Apple:</strong> Apple ile giriş, App Store üzerinden abonelik satın alma ve abonelik durum bildirimleri.</li>
         <li><strong>Google:</strong> Google ile giriş.</li>
-        <li><strong>AI hizmet sağlayıcısı:</strong> yazdığın plan metninin yapılandırılmış bir plana dönüştürülmesi için sunucu tarafında kullanılan yapay zekâ modeli sağlayıcısı.</li>
+        <li><strong>OpenAI (üçüncü taraf, yapay zekâ işleme):</strong> yazdığın plan komutunun metninin yapılandırılmış bir plana (başlık, tarih, tür) dönüştürülmesi için Life Admin adına kullanılan hizmet. Yalnızca yapay zekâ ile plan oluşturma özelliğini kullandığında ve yalnızca bu amaçla çağrılır.</li>
       </ul>
-      <p>Verilerini satmıyoruz ve reklam amacıyla üçüncü taraflarla paylaşmıyoruz. Yasal bir yükümlülük olduğunda yetkili makamlara bilgi vermemiz gerekebilir.</p>
+      <p>Verilerini satmıyoruz ve reklam amacıyla paylaşmıyoruz. Yukarıdaki sağlayıcılar yalnızca anlatılan amaçlarla veri alır. Yasal bir yükümlülük olduğunda yetkili makamlara bilgi vermemiz gerekebilir.</p>
 
       <h2>4. Google kullanıcı verisi</h2>
       <p>Google ile girişte Google'dan yalnızca kimlik doğrulama için gereken temel profil bilgilerini (e-posta adresi ve ad) alırız. Bu bilgileri yalnızca seni tanımak ve hesabını oluşturmak için kullanırız; reklam için kullanmaz, satmaz ve uygulamanın sunulması dışında üçüncü taraflara aktarmayız. Life Admin'in Google API'lerinden aldığı bilgileri kullanması, Google API Hizmetleri Kullanıcı Verisi Politikası'nın Sınırlı Kullanım gereklilikleriyle uyumludur.</p>
 
-      <h2>5. Yapay zekâ özellikleri</h2>
-      <p>Yapay zekâ ile plan oluştururken yazdığın metin sunucu tarafında işlenir ve sonuç olarak başlık, tarih ve tür gibi plan alanları döner. Bu özelliği kullanmak isteğe bağlıdır. Yapay zekâ çıktıları hatalı veya eksik olabilir; kaydetmeden önce kontrol etmen önerilir. Günlük kayıtlarını veya diğer içeriklerini kendiliğinden yapay zekâya göndermeyiz.</p>
+      <h2>5. Yapay zekâ özellikleri ve OpenAI</h2>
+      <p><strong>Ne zaman gönderilir.</strong> Yapay zekâ özelliği isteğe bağlıdır. Yapay zekâ ile plan oluşturmak için bir komut gönderdiğinde, yazdığın metin işlenmek üzere gönderilir; komut göndermediğin sürece hiçbir metin OpenAI'a iletilmez. Bu aktarımı istemiyorsan yapay zekâ özelliğini kullanma ve görevleri elle ekle. Yapay zekâya göndermek istemediğin bilgiyi komuta yazmamanı öneririz.</p>
+      <p><strong>OpenAI'a gönderilenler.</strong> Gönderdiğin komutun metni ve tarih/saat ifadelerini doğru yorumlayabilmek için o anki tarih ve saat, Supabase üzerinde çalışan sunucu fonksiyonumuz aracılığıyla OpenAI'a iletilir. Sonuç olarak başlık, tarih ve tür gibi plan alanları döner.</p>
+      <p><strong>OpenAI'a gönderilmeyenler.</strong> Adın, e-posta adresin, kullanıcı kimliğin, diğer görevlerin, günlük kayıtların, sayaçların ve abonelik bilgin bu isteğe eklenmez. Günlük kayıtlarını veya diğer içeriklerini kendiliğinden yapay zekâya göndermeyiz.</p>
+      <p><strong>OpenAI'ın rolü ve saklama.</strong> OpenAI, komutunu bizim adımıza işleyen üçüncü taraf bir hizmet sağlayıcıdır. İsteklerde OpenAI'dan yanıtı saklamamasını isteriz; bunun ötesinde OpenAI'ın kendi veri işleme koşulları ve gizlilik politikası (<a href="https://openai.com/policies/privacy-policy" rel="noopener">openai.com/policies/privacy-policy</a>) geçerlidir ve OpenAI'ın saklama uygulamalarını biz kontrol etmeyiz. Sunucu fonksiyonumuz komut metnini veritabanına yazmaz; hesabına yalnızca oluşan görev kaydedilir ve hesabını sildiğinde diğer verilerinle birlikte silinir. Daha önce gönderilmiş bir isteğin OpenAI tarafında işlenmiş olmasını geri alamayız.</p>
+      <p>Yapay zekâ çıktıları hatalı veya eksik olabilir; kaydetmeden önce kontrol etmen önerilir.</p>
 
       <h2>6. Abonelikler</h2>
       <p>Premium abonelik App Store üzerinden satın alınır ve Apple tarafından yönetilir. Faturalandırma, yenileme, iptal ve iade işlemleri Apple'ın kurallarına tabidir. Aboneliğini iPhone'unda Ayarlar → Apple Kimliğin → Abonelikler bölümünden veya uygulamadaki "Aboneliği Yönet" bağlantısından yönetebilirsin. Hesabını silmek App Store aboneliğini otomatik olarak iptal etmez; aboneliği ayrıca iptal etmen gerekir.</p>
