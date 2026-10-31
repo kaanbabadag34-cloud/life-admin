@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Vercel Node serverless function: Apple IAP signed-transaction verification for Life Admin Premium.",
   "engines": {
-    "node": ">=18"
+    "node": "24.x"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^1.0.0",
