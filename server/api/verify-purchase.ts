@@ -44,10 +44,18 @@
 // process.env üzerinden okunuyor ve Flutter'a asla gönderilmiyor.
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { SignedDataVerifier, Environment } from '@apple/app-store-server-library';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  isClaimReference,
+  isUuid,
+  normalizeEnvironment,
+  ownershipConflictBody,
+  tokenMatchesUser,
+  type LoginProvider,
+} from '../lib/ownership';
 
 const BUNDLE_ID = 'com.kaan.lifeadmin';
 const MONTHLY_PRODUCT_ID = 'lifeadmin_premium_monthly';
@@ -104,6 +112,7 @@ interface VerifiedPayload {
   productId: string;
   transactionId: string;
   originalTransactionId?: string;
+  appAccountToken?: string;
   expiresDate?: number;
   revocationDate?: number;
   environment: string;
@@ -208,6 +217,7 @@ async function verifyTransaction(signedTransaction: string): Promise<{
           productId: decoded.productId as string,
           transactionId: decoded.transactionId as string,
           originalTransactionId: decoded.originalTransactionId as string | undefined,
+          appAccountToken: decoded.appAccountToken as string | undefined,
           expiresDate: decoded.expiresDate as number | undefined,
           revocationDate: decoded.revocationDate as number | undefined,
           environment: String(decoded.environment ?? attempt.label),
@@ -220,6 +230,21 @@ async function verifyTransaction(signedTransaction: string): Promise<{
     valid: false,
     reason: `Apple imza doğrulaması başarısız (${lastLabel}).`,
   };
+}
+
+async function ownerProvider(
+  adminClient: SupabaseClient,
+  ownerId: string,
+): Promise<LoginProvider | null> {
+  try {
+    const { data } = await adminClient.auth.admin.getUserById(ownerId);
+    const provider = data?.user?.app_metadata?.provider;
+    return provider === 'apple' || provider === 'google' || provider === 'email'
+      ? provider
+      : null;
+  } catch (_error) {
+    return null;
+  }
 }
 
 function setCors(res: VercelResponse) {
@@ -319,45 +344,112 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Flutter'a hiçbir zaman gönderilmez.
     const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    const profileUpdate: Record<string, unknown> = {
-      plan: isActive ? 'premium' : 'free',
-      subscription_product_id: payload.productId,
-      subscription_expires_at: expiresAt?.toISOString() ?? null,
-      subscription_platform: 'ios',
-      subscription_status: isRevoked ? 'revoked' : isActive ? 'active' : 'expired',
-    };
+    const plan = isActive ? 'premium' : 'free';
+    const status = isRevoked ? 'revoked' : isActive ? 'active' : 'expired';
 
-    // originalTransactionId, yalnızca Apple doğrulaması başarılı olduktan
-    // sonra, doğrulanmış payload'dan gelir. Yoksa mevcut alan EZİLMEZ
-    // (alan update'e hiç eklenmez) ve premium akışı bozulmaz.
-    if (payload.originalTransactionId) {
-      profileUpdate.subscription_original_transaction_id = payload.originalTransactionId;
-    } else {
+    if (!payload.originalTransactionId) {
+      // Abonelik kimliği olmadan hangi hesaba ait olduğuna karar verilemez:
+      // hak AÇILMAZ (eskiden profil yine de güncelleniyordu).
       console.warn(
         JSON.stringify({
           event: 'verify-purchase-missing-original-transaction-id',
-          userId,
           productId: payload.productId,
           environment: payload.environment,
           at: new Date().toISOString(),
         }),
       );
+      res.status(200).json({ success: false, reason: 'Satın alma kaydı eksik.' });
+      return;
     }
 
-    const { error: updateError } = await adminClient
-      .from('profiles')
-      .update(profileUpdate)
-      .eq('id', userId);
+    // Abonelik en fazla BİR Life Admin hesabına bağlanır; karar tek bir kilitli
+    // SQL işleminde verilir (migrations/20261031100300_subscription_ownership.sql).
+    // "Geri Yükle" aboneliği başka hesaba TAŞIMAZ. Yalnızca satın alma Apple
+    // imzalı appAccountToken ile BU hesapta başlatıldıysa ve
+    // SUBSCRIPTION_TOKEN_TRANSFER=on ise taşınır (kullanıcı onayı bekleyen karar).
+    const { data: claim, error: claimError } = await adminClient
+      .rpc('claim_subscription', {
+        p_user_id: userId,
+        p_original_transaction_id: payload.originalTransactionId,
+        p_app_account_token: isUuid(payload.appAccountToken) ? payload.appAccountToken : null,
+        p_allow_token_transfer: process.env.SUBSCRIPTION_TOKEN_TRANSFER === 'on',
+        p_product_id: payload.productId,
+        p_expires_at: expiresAt?.toISOString() ?? null,
+        p_status: status,
+        p_plan: plan,
+      })
+      .single<{ result: string; previous_owner: string | null }>();
 
-    if (updateError) {
-      console.error('profiles update error', updateError);
+    if (claimError || !claim) {
+      console.error(
+        JSON.stringify({
+          event: 'verify-purchase-claim-error',
+          code: claimError?.code,
+          at: new Date().toISOString(),
+        }),
+      );
       res.status(500).json({ success: false, reason: 'Profil güncellenemedi.' });
+      return;
+    }
+
+    if (claim.result === 'owned_by_other') {
+      // Kurtarma ipucu: yalnızca bağlı hesabın GİRİŞ TÜRÜ söylenir (e-posta
+      // veya kimlik paylaşılmaz). Abonelik ASLA otomatik taşınmaz.
+      const provider = claim.previous_owner
+        ? await ownerProvider(adminClient, claim.previous_owner)
+        : null;
+
+      // Satın alma Apple imzalı appAccountToken ile BU hesapta başlatıldıysa
+      // kullanıcı gerçekten bu hesapta ödeme yaptı: destek kaydı açılır ve
+      // referans verilir. Kayıt açılamazsa yine de "bağlı başka hesap" yanıtı
+      // döner (kesin sonuç; uygulama tekrar denemez).
+      let reference: string | null = null;
+      // İade edilmiş (revoked) işlem için kayıt AÇILMAZ.
+      if (
+        !isRevoked &&
+        tokenMatchesUser(payload.appAccountToken, userId) &&
+        payload.transactionId
+      ) {
+        const { data: claimRef, error: recordError } = await adminClient.rpc(
+          'record_subscription_claim',
+          {
+            p_user_id: userId,
+            p_original_transaction_id: payload.originalTransactionId,
+            p_transaction_id: payload.transactionId,
+            p_product_id: payload.productId,
+            p_environment: normalizeEnvironment(payload.environment),
+            p_expires_at: expiresAt?.toISOString() ?? null,
+            p_token_matches: true,
+          },
+        );
+        if (recordError || !isClaimReference(claimRef)) {
+          console.error(
+            JSON.stringify({
+              event: 'verify-purchase-claim-record-error',
+              code: recordError?.code,
+              at: new Date().toISOString(),
+            }),
+          );
+        } else {
+          reference = claimRef;
+          console.warn(
+            JSON.stringify({
+              event: 'verify-purchase-claim-recorded',
+              reference,
+              environment: normalizeEnvironment(payload.environment),
+              at: new Date().toISOString(),
+            }),
+          );
+        }
+      }
+
+      res.status(200).json(ownershipConflictBody(provider, reference));
       return;
     }
 
     res.status(200).json({
       success: true,
-      plan: isActive ? 'premium' : 'free',
+      plan,
       expiresAt: expiresAt?.toISOString() ?? null,
     });
   } catch (error) {
